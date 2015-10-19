@@ -27,7 +27,7 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 #include "drivers/gles2/rasterizer_gles2.h"
-#include "drivers/gles1/rasterizer_gles1.h"
+
 #include "os_windows.h"
 #include "drivers/nedmalloc/memory_pool_static_nedmalloc.h"
 #include "drivers/unix/memory_pool_static_malloc.h"
@@ -45,13 +45,26 @@
 #include "servers/visual/visual_server_wrap_mt.h"
 
 #include "tcp_server_winsock.h"
+#include "packet_peer_udp_winsock.h"
 #include "stream_peer_winsock.h"
 #include "os/pc_joystick_map.h"
 #include "lang_table.h"
 #include "os/memory_pool_dynamic_prealloc.h"
 #include "globals.h"
 #include "io/marshalls.h"
+
+#include "shlobj.h"
+#include <regstr.h>
+
 static const WORD MAX_CONSOLE_LINES = 1500;
+
+extern "C" {
+#ifdef _MSC_VER
+	_declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
+#else
+	__attribute__((visibility("default"))) DWORD NvOptimusEnablement = 0x00000001;
+#endif
+}
 
 //#define STDOUT_FILE
 
@@ -126,11 +139,11 @@ void RedirectIOToConsole() {
 
 int OS_Windows::get_video_driver_count() const {
 
-	return 2;
+	return 1;
 }
 const char * OS_Windows::get_video_driver_name(int p_driver) const {
 
-	return p_driver==0?"GLES2":"GLES1";
+	return "GLES2";
 }
 
 OS::VideoMode OS_Windows::get_default_video_mode() const {
@@ -158,6 +171,8 @@ void OS_Windows::initialize_core() {
 	last_button_state=0;
 
 	//RedirectIOToConsole();
+	maximized=false;
+	minimized=false;
 
 	ThreadWindows::make_default();	
 	SemaphoreWindows::make_default();	
@@ -173,6 +188,7 @@ void OS_Windows::initialize_core() {
 
 	TCPServerWinsock::make_default();
 	StreamPeerWinsock::make_default();
+	PacketPeerUDPWinsock::make_default();
 	
 	mempool_static = new MemoryPoolStaticMalloc;
 #if 1
@@ -206,6 +222,41 @@ bool OS_Windows::can_draw() const {
 	return !minimized;
 };
 
+#define MI_WP_SIGNATURE 0xFF515700
+#define SIGNATURE_MASK 0xFFFFFF00
+#define IsPenEvent(dw) (((dw) & SIGNATURE_MASK) == MI_WP_SIGNATURE)
+
+
+void OS_Windows::_touch_event(bool p_pressed, int p_x, int p_y, int idx) {
+
+	InputEvent event;
+	event.type = InputEvent::SCREEN_TOUCH;
+	event.ID=++last_id;
+	event.screen_touch.index = idx;
+
+	event.screen_touch.pressed = p_pressed;
+
+	event.screen_touch.x=p_x;
+	event.screen_touch.y=p_y;
+
+	if (main_loop) {
+		input->parse_input_event(event);
+	}
+};
+
+void OS_Windows::_drag_event(int p_x, int p_y, int idx) {
+
+	InputEvent event;
+	event.type = InputEvent::SCREEN_DRAG;
+	event.ID=++last_id;
+	event.screen_drag.index = idx;
+
+	event.screen_drag.x=p_x;
+	event.screen_drag.y=p_y;
+
+	if (main_loop)
+		input->parse_input_event(event);
+};
 
 LRESULT OS_Windows::WndProc(HWND hWnd,UINT uMsg, WPARAM	wParam,	LPARAM	lParam) {
 
@@ -270,28 +321,53 @@ LRESULT OS_Windows::WndProc(HWND hWnd,UINT uMsg, WPARAM	wParam,	LPARAM	lParam) {
 		}
 		case WM_MOUSELEAVE: {
 
-                    old_invalid=true;
-                    outside=true;
+			old_invalid=true;
+			outside=true;
+			if (main_loop && mouse_mode!=MOUSE_MODE_CAPTURED)
+				main_loop->notification(MainLoop::NOTIFICATION_WM_MOUSE_EXIT);
+			if (input)
+				input->set_mouse_in_window(false);
 
 		} break;
 		case WM_MOUSEMOVE: {
 
-                    if (outside) {
+			if (outside) {
+				//mouse enter
 
-                        CursorShape c=cursor_shape;
-                        cursor_shape=CURSOR_MAX;
-                        set_cursor_shape(c);
-                        outside=false;
+				if (main_loop && mouse_mode!=MOUSE_MODE_CAPTURED)
+					main_loop->notification(MainLoop::NOTIFICATION_WM_MOUSE_ENTER);
+				if (input)
+					input->set_mouse_in_window(true);
 
-			//Once-Off notification, must call again....
-			TRACKMOUSEEVENT tme;
-			tme.cbSize=sizeof(TRACKMOUSEEVENT);
-			tme.dwFlags=TME_LEAVE;
-			tme.hwndTrack=hWnd;
-			tme.dwHoverTime=HOVER_DEFAULT;
-			TrackMouseEvent(&tme);
+				CursorShape c=cursor_shape;
+				cursor_shape=CURSOR_MAX;
+				set_cursor_shape(c);
+				outside=false;
 
-                    }
+				//Once-Off notification, must call again....
+				TRACKMOUSEEVENT tme;
+				tme.cbSize=sizeof(TRACKMOUSEEVENT);
+				tme.dwFlags=TME_LEAVE;
+				tme.hwndTrack=hWnd;
+				tme.dwHoverTime=HOVER_DEFAULT;
+				TrackMouseEvent(&tme);
+
+			}
+
+			/*
+			LPARAM extra = GetMessageExtraInfo();
+			if (IsPenEvent(extra)) {
+
+				int idx = extra & 0x7f;
+				_drag_event(idx, uMsg, wParam, lParam);
+				if (idx != 0) {
+					return 0;
+				};
+				// fallthrough for mouse event
+			};
+			*/
+
+
 			InputEvent event;
 			event.type=InputEvent::MOUSE_MOTION;
 			event.ID=++last_id;
@@ -357,8 +433,22 @@ LRESULT OS_Windows::WndProc(HWND hWnd,UINT uMsg, WPARAM	wParam,	LPARAM	lParam) {
 		case WM_RBUTTONUP:
 		case WM_MOUSEWHEEL:
 		case WM_LBUTTONDBLCLK:
+		case WM_RBUTTONDBLCLK:
 		/*case WM_XBUTTONDOWN:
 		case WM_XBUTTONUP: */{
+
+			/*
+			LPARAM extra = GetMessageExtraInfo();
+			if (IsPenEvent(extra)) {
+
+				int idx = extra & 0x7f;
+				_touch_event(idx, uMsg, wParam, lParam);
+				if (idx != 0) {
+					return 0;
+				};
+				// fallthrough for mouse event
+			};
+			*/
 
 			InputEvent event;
 			event.type=InputEvent::MOUSE_BUTTON;
@@ -395,6 +485,12 @@ LRESULT OS_Windows::WndProc(HWND hWnd,UINT uMsg, WPARAM	wParam,	LPARAM	lParam) {
 
 					mb.pressed=true;
 					mb.button_index=1;
+					mb.doubleclick = true;
+				} break;
+				case WM_RBUTTONDBLCLK: {
+
+					mb.pressed=true;
+					mb.button_index=2;
 					mb.doubleclick = true;
 				} break;
 				case WM_MOUSEWHEEL: {
@@ -518,10 +614,11 @@ LRESULT OS_Windows::WndProc(HWND hWnd,UINT uMsg, WPARAM	wParam,	LPARAM	lParam) {
 
 			ERR_BREAK(key_event_pos >= KEY_EVENT_BUFFER_SIZE);
 
+			// Make sure we don't include modifiers for the modifier key itself.
 			KeyEvent ke;
-			ke.mod_state.shift=shift_mem;
-			ke.mod_state.alt=alt_mem;
-			ke.mod_state.control=control_mem;
+			ke.mod_state.shift= (wParam != VK_SHIFT) ? shift_mem : false;
+			ke.mod_state.alt= (! (wParam == VK_MENU && (uMsg == WM_KEYDOWN || uMsg == WM_SYSKEYDOWN))) ? alt_mem : false;
+			ke.mod_state.control= (wParam != VK_CONTROL) ? control_mem : false;
 			ke.mod_state.meta=meta_mem;
 			ke.uMsg=uMsg;
 
@@ -549,6 +646,43 @@ LRESULT OS_Windows::WndProc(HWND hWnd,UINT uMsg, WPARAM	wParam,	LPARAM	lParam) {
 
 			print_line("input lang change");
 		} break;
+
+		#if WINVER >= 0x0700 // for windows 7
+		case WM_TOUCH: {
+
+			BOOL bHandled = FALSE;
+			UINT cInputs = LOWORD(wParam);
+			PTOUCHINPUT pInputs = memnew_arr(TOUCHINPUT, cInputs);
+			if (pInputs){
+				if (GetTouchInputInfo((HTOUCHINPUT)lParam, cInputs, pInputs, sizeof(TOUCHINPUT))){
+					for (UINT i=0; i < cInputs; i++){
+						TOUCHINPUT ti = pInputs[i];
+						//do something with each touch input entry
+						if (ti.dwFlags & TOUCHEVENTF_MOVE) {
+
+							_drag_event(ti.x / 100, ti.y / 100, ti.dwID);
+						} else if (ti.dwFlags & (TOUCHEVENTF_UP | TOUCHEVENTF_DOWN)) {
+
+							_touch_event(ti.dwFlags & TOUCHEVENTF_DOWN != 0, ti.x / 100, ti.y / 100, ti.dwID);
+						};
+					}
+					bHandled = TRUE;
+				}else{
+					 /* handle the error here */
+				}
+				memdelete_arr(pInputs);
+			}else{
+				/* handle the error here, probably out of memory */
+			}
+			if (bHandled) {
+				CloseTouchInputHandle((HTOUCHINPUT)lParam);
+				return 0;
+			};
+
+		} break;
+
+		#endif
+
 		default: {
 
 			if (user_proc) {
@@ -572,7 +706,56 @@ LRESULT CALLBACK WndProc(HWND	hWnd,UINT uMsg,	WPARAM	wParam,	LPARAM	lParam)	{
 
 }
 
+
+String OS_Windows::get_joystick_name(int id, JOYCAPS jcaps)
+{
+	char buffer [256];
+	char OEM [256];
+	HKEY hKey;
+	DWORD sz;
+	int res;
+
+	_snprintf(buffer, sizeof(buffer), "%s\\%s\\%s",
+				REGSTR_PATH_JOYCONFIG, jcaps.szRegKey,
+				REGSTR_KEY_JOYCURR );
+	res = RegOpenKeyEx(HKEY_LOCAL_MACHINE, buffer, 0, KEY_QUERY_VALUE, &hKey);
+	if (res != ERROR_SUCCESS)
+	{
+		res = RegOpenKeyEx(HKEY_CURRENT_USER, buffer, 0, KEY_QUERY_VALUE, &hKey);
+		if (res != ERROR_SUCCESS) 
+			return "";
+	}
+
+	sz = sizeof(OEM);
+	_snprintf( buffer, sizeof(buffer), "Joystick%d%s", id + 1, REGSTR_VAL_JOYOEMNAME);
+	res = RegQueryValueEx ( hKey, buffer, 0, 0, (LPBYTE) OEM, &sz);
+	RegCloseKey ( hKey );
+	if (res != ERROR_SUCCESS) 
+		return "";
+
+	_snprintf( buffer, sizeof(buffer), "%s\\%s", REGSTR_PATH_JOYOEM, OEM);
+	res = RegOpenKeyEx(HKEY_LOCAL_MACHINE, buffer, 0, KEY_QUERY_VALUE, &hKey);
+	if (res != ERROR_SUCCESS)
+	{
+		res = RegOpenKeyEx(HKEY_CURRENT_USER, buffer, 0, KEY_QUERY_VALUE, &hKey);
+		if (res != ERROR_SUCCESS)
+			return "";
+	}
+		
+
+	sz = sizeof(buffer);
+	res = RegQueryValueEx(hKey, REGSTR_VAL_JOYOEMNAME, 0, 0, (LPBYTE) buffer,
+						  &sz);
+	RegCloseKey(hKey);
+	if (res != ERROR_SUCCESS) 
+		return "";
+
+	return String(buffer);
+}
+
 void OS_Windows::probe_joysticks() {
+
+	static uint32_t last_attached = 0;
 
 	int device_count = joyGetNumDevs();
 
@@ -582,21 +765,46 @@ void OS_Windows::probe_joysticks() {
 
 	for (int i=0; i<JOYSTICKS_MAX; i++) {
 
-		joysticks[i].attached = (device_count > 0) && (joyGetPosEx(JOYSTICKID1 + i, &jinfo) == JOYERR_NOERROR);
+		Joystick joy;
+		joy.id = i;
+		joy.attached = (device_count > 0) && (joyGetPosEx(JOYSTICKID1 + i, &jinfo) == JOYERR_NOERROR);
 
-		if (!joysticks[i].attached) {
-
+		if (joy.attached == (last_attached & (1 << i) != 0)) {
 			continue;
 		};
 
-		joysticks[i].last_buttons = jinfo.dwButtons;
+		// there's been a change since last call
 
-		joysticks[i].last_axis[0] = jinfo.dwXpos;
-		joysticks[i].last_axis[1] = jinfo.dwYpos;
-		joysticks[i].last_axis[2] = jinfo.dwZpos;
-		joysticks[i].last_axis[3] = jinfo.dwRpos;
-		joysticks[i].last_axis[4] = jinfo.dwUpos;
-		joysticks[i].last_axis[5] = jinfo.dwVpos;
+		if (joy.attached)
+			last_attached = last_attached | (1 << i);
+		else
+			last_attached &= ~(1 << i);
+
+		if (joy.attached) {
+
+			joy.last_buttons = jinfo.dwButtons;
+
+			joy.last_axis[0] = jinfo.dwXpos;
+			joy.last_axis[1] = jinfo.dwYpos;
+			joy.last_axis[2] = jinfo.dwZpos;
+			joy.last_axis[3] = jinfo.dwRpos;
+			joy.last_axis[4] = jinfo.dwUpos;
+			joy.last_axis[5] = jinfo.dwVpos;
+
+			JOYCAPS jcaps;
+			MMRESULT res = joyGetDevCaps(JOYSTICKID1 + i, &jcaps, sizeof(jcaps));
+			if (res == JOYERR_NOERROR) {
+				String name = get_joystick_name(JOYSTICKID1 + i, jcaps);
+				if ( name == "")
+					joy.name = jcaps.szPname;
+				else
+					joy.name = name;
+				
+					
+			};
+		};
+
+		joystick_change_queue.push_back(joy);
 	};
 };
 
@@ -807,7 +1015,7 @@ void OS_Windows::process_joysticks() {
 
 			if ( (joysticks[i].last_buttons & (1<<j)) != (jinfo.dwButtons & (1<<j)) ) {
 
-				ievent.joy_button.button_index = _pc_joystick_get_native_button(j);
+				ievent.joy_button.button_index = j; //_pc_joystick_get_native_button(j);
 				ievent.joy_button.pressed = jinfo.dwButtons & 1<<j;
 				ievent.ID = ++last_id;
 				input->parse_input_event(ievent);
@@ -817,6 +1025,23 @@ void OS_Windows::process_joysticks() {
 		joysticks[i].last_buttons = jinfo.dwButtons;
 	};
 };
+
+
+BOOL CALLBACK OS_Windows::MonitorEnumProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMonitor,  LPARAM dwData) {
+	OS_Windows *self=(OS_Windows*)OS::get_singleton();
+	MonitorInfo minfo;
+	minfo.hMonitor=hMonitor;
+	minfo.hdcMonitor=hdcMonitor;
+	minfo.rect.pos.x=lprcMonitor->left;
+	minfo.rect.pos.y=lprcMonitor->top;
+	minfo.rect.size.x=lprcMonitor->right - lprcMonitor->left;
+	minfo.rect.size.y=lprcMonitor->bottom - lprcMonitor->top;
+
+	self->monitor_info.push_back(minfo);
+
+	return TRUE;
+}
+
 
 void OS_Windows::initialize(const VideoMode& p_desired,int p_video_driver,int p_audio_driver) {
 
@@ -856,13 +1081,20 @@ void OS_Windows::initialize(const VideoMode& p_desired,int p_video_driver,int p_
 	}
 	
 	
+	EnumDisplayMonitors(NULL,NULL,MonitorEnumProc,0);
+
+	print_line("DETECTED MONITORS: "+itos(monitor_info.size()));
+	pre_fs_valid=true;
 	if (video_mode.fullscreen) {
 
 		DEVMODE current;
 		memset(&current,0,sizeof(current));
 		EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &current);
+		
+		WindowRect.right  = current.dmPelsWidth;
+		WindowRect.bottom = current.dmPelsHeight;
 
-		DEVMODE dmScreenSettings;
+/*  DEVMODE dmScreenSettings;
 		memset(&dmScreenSettings,0,sizeof(dmScreenSettings));
 		dmScreenSettings.dmSize=sizeof(dmScreenSettings);
 		dmScreenSettings.dmPelsWidth	= video_mode.width;
@@ -874,7 +1106,8 @@ void OS_Windows::initialize(const VideoMode& p_desired,int p_video_driver,int p_
 		if (err!=DISP_CHANGE_SUCCESSFUL) {
 
 			video_mode.fullscreen=false;
-		}
+		}*/
+		pre_fs_valid=false;
 	}
 
 	DWORD		dwExStyle;
@@ -954,7 +1187,7 @@ void OS_Windows::initialize(const VideoMode& p_desired,int p_video_driver,int p_
 	physics_server = memnew( PhysicsServerSW );
 	physics_server->init();
 
-	physics_2d_server = memnew( Physics2DServerSW );
+	physics_2d_server = Physics2DServerWrapMT::init_server<Physics2DServerSW>();
 	physics_2d_server->init();
 
 	if (!is_no_window_mode_enabled()) {
@@ -998,7 +1231,13 @@ void OS_Windows::initialize(const VideoMode& p_desired,int p_video_driver,int p_
 	spatial_sound_2d_server = memnew( SpatialSound2DServerSW );
 	spatial_sound_2d_server->init();
 
-	probe_joysticks();
+	probe_joysticks(); // todo: move this to a thread
+	while (joystick_change_queue.size() > 0) {
+		Joystick joy = joystick_change_queue.front()->get();
+		joystick_change_queue.pop_front();
+		joysticks[joy.id] = joy;
+		input->joy_connection_changed(joy.id, joy.attached, joy.name);
+	};
 
 	TRACKMOUSEEVENT tme;
 	tme.cbSize=sizeof(TRACKMOUSEEVENT);
@@ -1007,6 +1246,7 @@ void OS_Windows::initialize(const VideoMode& p_desired,int p_video_driver,int p_
 	tme.dwHoverTime=HOVER_DEFAULT;
 	TrackMouseEvent(&tme);
 
+	//RegisterTouchWindow(hWnd, 0); // Windows 7
 
 	_ensure_data_dir();
 
@@ -1145,6 +1385,9 @@ void OS_Windows::finalize() {
 	physics_2d_server->finish();
 	memdelete(physics_2d_server);
 
+	joystick_change_queue.clear();
+	monitor_info.clear();
+
 }
 void OS_Windows::finalize_core() {
 
@@ -1224,10 +1467,28 @@ void OS_Windows::set_mouse_mode(MouseMode p_mode) {
 
 OS_Windows::MouseMode OS_Windows::get_mouse_mode() const{
 
+
 	return mouse_mode;
 }
 
 
+
+void OS_Windows::warp_mouse_pos(const Point2& p_to) {
+
+	if (mouse_mode==MOUSE_MODE_CAPTURED) {
+
+		old_x=p_to.x;
+		old_y=p_to.y;
+	} else {
+
+		POINT p;
+		p.x=p_to.x;
+		p.y=p_to.y;
+		ClientToScreen(hWnd,&p);
+
+		SetCursorPos(p.x,p.y);
+	}
+}
 
 Point2 OS_Windows::get_mouse_pos() const {
 
@@ -1246,8 +1507,9 @@ void OS_Windows::set_window_title(const String& p_title) {
 
 void OS_Windows::set_video_mode(const VideoMode& p_video_mode,int p_screen) {
 
-	
+
 }
+
 OS::VideoMode OS_Windows::get_video_mode(int p_screen) const {
 
 	return video_mode;
@@ -1256,6 +1518,251 @@ void OS_Windows::get_fullscreen_mode_list(List<VideoMode> *p_list,int p_screen) 
 
 	
 }
+
+int OS_Windows::get_screen_count() const {
+
+	return monitor_info.size();
+}
+int OS_Windows::get_current_screen() const{
+
+	HMONITOR monitor = MonitorFromWindow(hWnd,MONITOR_DEFAULTTONEAREST);
+	for(int i=0;i<monitor_info.size();i++) {
+		if (monitor_info[i].hMonitor==monitor)
+			return i;
+	}
+
+	return 0;
+}
+void OS_Windows::set_current_screen(int p_screen){
+
+	ERR_FAIL_INDEX(p_screen,monitor_info.size());
+
+	Vector2 ofs = get_window_position() - get_screen_position(get_current_screen());
+	set_window_position(ofs+get_screen_position(p_screen));
+
+}
+
+Point2 OS_Windows::get_screen_position(int p_screen) const{
+
+	ERR_FAIL_INDEX_V(p_screen,monitor_info.size(),Point2());
+	return Vector2( monitor_info[p_screen].rect.pos );
+
+}
+Size2 OS_Windows::get_screen_size(int p_screen) const{
+
+	ERR_FAIL_INDEX_V(p_screen,monitor_info.size(),Point2());
+	return Vector2( monitor_info[p_screen].rect.size );
+
+}
+Point2 OS_Windows::get_window_position() const{
+
+	RECT r;
+	GetWindowRect(hWnd,&r);
+	return Point2(r.left,r.top);
+}
+void OS_Windows::set_window_position(const Point2& p_position){
+
+	RECT r;
+	GetWindowRect(hWnd,&r);
+	MoveWindow(hWnd,p_position.x,p_position.y,r.right-r.left,r.bottom-r.top,TRUE);
+
+}
+Size2 OS_Windows::get_window_size() const{
+
+	RECT r;
+	GetClientRect(hWnd,&r);
+	return Vector2(r.right-r.left,r.bottom-r.top);
+
+}
+void OS_Windows::set_window_size(const Size2 p_size){
+
+	video_mode.width=p_size.width;
+	video_mode.height=p_size.height;
+
+	if (video_mode.fullscreen) {
+		return;
+	}
+
+
+	RECT crect;
+	GetClientRect(hWnd,&crect);
+
+	RECT rect;
+	GetWindowRect(hWnd,&rect);
+	int dx = (rect.right-rect.left)-(crect.right-crect.left);
+	int dy = (rect.bottom-rect.top)-(crect.bottom-crect.top);
+
+	rect.right=rect.left+p_size.width+dx;
+	rect.bottom=rect.top+p_size.height+dy;
+
+
+	//print_line("PRE: "+itos(rect.left)+","+itos(rect.top)+","+itos(rect.right-rect.left)+","+itos(rect.bottom-rect.top));
+
+	/*if (video_mode.resizable) {
+		AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
+	} else {
+		AdjustWindowRect(&rect, WS_CAPTION | WS_POPUPWINDOW, FALSE);
+	}*/
+
+	//print_line("POST: "+itos(rect.left)+","+itos(rect.top)+","+itos(rect.right-rect.left)+","+itos(rect.bottom-rect.top));
+
+	MoveWindow(hWnd,rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top,TRUE);
+
+}
+void OS_Windows::set_window_fullscreen(bool p_enabled){
+
+	if (video_mode.fullscreen==p_enabled)
+		return;
+
+
+
+	if (p_enabled) {
+
+
+		if (pre_fs_valid) {
+			GetWindowRect(hWnd,&pre_fs_rect);
+			//print_line("A: "+itos(pre_fs_rect.left)+","+itos(pre_fs_rect.top)+","+itos(pre_fs_rect.right-pre_fs_rect.left)+","+itos(pre_fs_rect.bottom-pre_fs_rect.top));
+			//MapWindowPoints(hWnd, GetParent(hWnd), (LPPOINT) &pre_fs_rect, 2);
+			//print_line("B: "+itos(pre_fs_rect.left)+","+itos(pre_fs_rect.top)+","+itos(pre_fs_rect.right-pre_fs_rect.left)+","+itos(pre_fs_rect.bottom-pre_fs_rect.top));
+		}
+
+
+		int cs = get_current_screen();
+		Point2 pos = get_screen_position(cs);
+		Size2 size = get_screen_size(cs);
+
+	/*	r.left = pos.x;
+		r.top = pos.y;
+		r.bottom = pos.y+size.y;
+		r.right = pos.x+size.x;
+*/
+		SetWindowLongPtr(hWnd, GWL_STYLE,
+		    WS_SYSMENU | WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | WS_VISIBLE);
+		MoveWindow(hWnd, pos.x, pos.y, size.width, size.height, TRUE);
+
+		video_mode.fullscreen=true;
+
+
+	} else {
+
+		RECT rect;
+
+		if (pre_fs_valid) {
+			rect=pre_fs_rect;
+		} else {
+			rect.left=0;
+			rect.right=video_mode.width;
+			rect.top=0;
+			rect.bottom=video_mode.height;
+		}
+
+
+
+		if (video_mode.resizable) {
+
+			SetWindowLongPtr(hWnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+			//AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
+			MoveWindow(hWnd, rect.left, rect.top, rect.right-rect.left, rect.bottom-rect.top, TRUE);
+		} else {
+
+			SetWindowLongPtr(hWnd, GWL_STYLE, WS_CAPTION | WS_POPUPWINDOW | WS_VISIBLE);
+			//AdjustWindowRect(&rect, WS_CAPTION | WS_POPUPWINDOW, FALSE);
+			MoveWindow(hWnd, rect.left, rect.top, rect.right-rect.left, rect.bottom-rect.top, TRUE);
+		}
+
+		video_mode.fullscreen=false;
+		pre_fs_valid=true;
+/*
+		DWORD dwExStyle=WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
+		DWORD dwStyle=WS_OVERLAPPEDWINDOW;
+		if (!video_mode.resizable) {
+			dwStyle &= ~WS_THICKFRAME;
+			dwStyle &= ~WS_MAXIMIZEBOX;
+		}
+		AdjustWindowRectEx(&pre_fs_rect, dwStyle, FALSE, dwExStyle);
+		video_mode.fullscreen=false;
+		video_mode.width=pre_fs_rect.right-pre_fs_rect.left;
+		video_mode.height=pre_fs_rect.bottom-pre_fs_rect.top;
+*/
+	}
+
+//	MoveWindow(hWnd,r.left,r.top,p_size.x,p_size.y,TRUE);
+
+
+}
+bool OS_Windows::is_window_fullscreen() const{
+
+	return video_mode.fullscreen;
+}
+void OS_Windows::set_window_resizable(bool p_enabled){
+
+	if (video_mode.resizable==p_enabled)
+		return;
+/*
+	GetWindowRect(hWnd,&pre_fs_rect);
+	DWORD dwExStyle=WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
+	DWORD dwStyle=WS_OVERLAPPEDWINDOW;
+	if (!p_enabled) {
+		dwStyle &= ~WS_THICKFRAME;
+		dwStyle &= ~WS_MAXIMIZEBOX;
+	}
+	AdjustWindowRectEx(&pre_fs_rect, dwStyle, FALSE, dwExStyle);
+	*/
+
+	if (!video_mode.fullscreen) {
+		if (p_enabled) {
+			SetWindowLongPtr(hWnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+		} else {
+			SetWindowLongPtr(hWnd, GWL_STYLE, WS_CAPTION | WS_POPUPWINDOW | WS_VISIBLE);
+
+		}
+
+		RECT rect;
+		GetWindowRect(hWnd,&rect);
+		MoveWindow(hWnd, rect.left, rect.top, rect.right-rect.left, rect.bottom-rect.top, TRUE);
+	}
+
+	video_mode.resizable=p_enabled;
+
+}
+bool OS_Windows::is_window_resizable() const{
+
+	return video_mode.resizable;
+}
+void OS_Windows::set_window_minimized(bool p_enabled){
+
+	if (p_enabled) {
+		maximized=false;
+		minimized=true;
+		ShowWindow(hWnd,SW_MINIMIZE);
+	} else {
+		ShowWindow(hWnd,SW_RESTORE);
+		maximized=false;
+		minimized=false;
+	}
+}
+bool OS_Windows::is_window_minimized() const{
+
+	return minimized;
+
+}
+void OS_Windows::set_window_maximized(bool p_enabled){
+
+	if (p_enabled) {
+		maximized=true;
+		minimized=false;
+		ShowWindow(hWnd,SW_MAXIMIZE);
+	} else {
+		ShowWindow(hWnd,SW_RESTORE);
+		maximized=false;
+		minimized=false;
+	}
+}
+bool OS_Windows::is_window_maximized() const{
+
+	return maximized;
+}
+
 
 void OS_Windows::print_error(const char* p_function,const char* p_file,int p_line,const char *p_code,const char*p_rationale,ErrorType p_type) {
 
@@ -1332,10 +1839,14 @@ String OS_Windows::get_name() {
 	return "Windows";
 }
 
-OS::Date OS_Windows::get_date() const {
+OS::Date OS_Windows::get_date(bool utc) const {
 
 	SYSTEMTIME systemtime;
-	GetSystemTime(&systemtime);
+	if (utc)
+		GetSystemTime(&systemtime);
+	else
+		GetLocalTime(&systemtime);
+
 	Date date;
 	date.day=systemtime.wDay;
 	date.month=Month(systemtime.wMonth);
@@ -1344,16 +1855,36 @@ OS::Date OS_Windows::get_date() const {
 	date.dst=false;
 	return date;
 }
-OS::Time OS_Windows::get_time() const {
+OS::Time OS_Windows::get_time(bool utc) const {
 
 	SYSTEMTIME systemtime;
-	GetSystemTime(&systemtime);
+	if (utc)
+		GetSystemTime(&systemtime);
+	else
+		GetLocalTime(&systemtime);
 
 	Time time;
 	time.hour=systemtime.wHour;
 	time.min=systemtime.wMinute;
 	time.sec=systemtime.wSecond;
 	return time;
+}
+
+OS::TimeZoneInfo OS_Windows::get_time_zone_info() const {
+	TIME_ZONE_INFORMATION info;
+	bool daylight = false;
+	if (GetTimeZoneInformation(&info) == TIME_ZONE_ID_DAYLIGHT)
+		daylight = true;
+
+	TimeZoneInfo ret;
+	if (daylight) {
+		ret.name = info.DaylightName;
+	} else {
+		ret.name = info.StandardName;
+	}
+
+	ret.bias = info.Bias;
+	return ret;
 }
 
 uint64_t OS_Windows::get_unix_time() const {
@@ -1377,6 +1908,12 @@ uint64_t OS_Windows::get_unix_time() const {
 
 	return (*(uint64_t*)&ft - *(uint64_t*)&fep) / 10000000;
 };
+
+uint64_t OS_Windows::get_system_time_msec() const {
+	SYSTEMTIME st;
+	GetSystemTime(&st);
+	return st.wMilliseconds;
+}
 
 void OS_Windows::delay_usec(uint32_t p_usec) const {
 
@@ -1558,7 +2095,7 @@ String OS_Windows::get_executable_path() const {
 	wchar_t bufname[4096];
 	GetModuleFileNameW(NULL,bufname,4096);
 	String s= bufname;
-	print_line("EXEC PATHPó: "+s);
+	print_line("EXEC PATHP??: "+s);
 	return s;
 }
 
@@ -1623,12 +2160,13 @@ bool OS_Windows::has_environment(const String& p_var) const {
 
 String OS_Windows::get_environment(const String& p_var) const {
 
-	char* val = getenv(p_var.utf8().get_data());
-	if (val)
-		return val;
-
+	wchar_t wval[0x7Fff]; // MSDN says 32767 char is the maximum
+	int wlen = GetEnvironmentVariableW(p_var.c_str(),wval,0x7Fff);
+	if ( wlen > 0 ) {
+		return wval;
+	}
 	return "";
-};
+}
 
 String OS_Windows::get_stdin_string(bool p_block) {
 
@@ -1644,6 +2182,7 @@ String OS_Windows::get_stdin_string(bool p_block) {
 void OS_Windows::move_window_to_foreground() {
 
 	SetForegroundWindow(hWnd);
+	BringWindowToTop(hWnd);
 
 }
 
@@ -1728,7 +2267,46 @@ MainLoop *OS_Windows::get_main_loop() const {
 	return main_loop;
 }
 
+String OS_Windows::get_system_dir(SystemDir p_dir) const {
 
+
+	int id;
+
+
+
+	switch(p_dir) {
+		case SYSTEM_DIR_DESKTOP: {
+			id=CSIDL_DESKTOPDIRECTORY;
+		} break;
+		case SYSTEM_DIR_DCIM: {
+			id=CSIDL_MYPICTURES;
+		} break;
+		case SYSTEM_DIR_DOCUMENTS: {
+			id=0x000C;
+		} break;
+		case SYSTEM_DIR_DOWNLOADS: {
+			id=0x000C ;
+		} break;
+		case SYSTEM_DIR_MOVIES: {
+			id=CSIDL_MYVIDEO;
+		} break;
+		case SYSTEM_DIR_MUSIC: {
+			id=CSIDL_MYMUSIC;
+		} break;
+		case SYSTEM_DIR_PICTURES: {
+			id=CSIDL_MYPICTURES;
+		} break;
+		case SYSTEM_DIR_RINGTONES: {
+			id=CSIDL_MYMUSIC;
+		} break;
+	}
+
+	WCHAR szPath[MAX_PATH];
+	HRESULT res = SHGetFolderPathW(NULL,id,NULL,0,szPath);
+	ERR_FAIL_COND_V(res!=S_OK,String());
+	return String(szPath);
+
+}
 String OS_Windows::get_data_dir() const {
 
 	String an = Globals::get_singleton()->get("application/name");
@@ -1736,7 +2314,11 @@ String OS_Windows::get_data_dir() const {
 
 		if (has_environment("APPDATA")) {
 
-			return OS::get_singleton()->get_environment("APPDATA")+"\\"+an;
+			bool use_godot = Globals::get_singleton()->get("application/use_shared_user_dir");
+			if (!use_godot)
+				return (OS::get_singleton()->get_environment("APPDATA")+"/"+an).replace("\\","/");
+			else
+				return (OS::get_singleton()->get_environment("APPDATA")+"/Godot/app_userdata/"+an).replace("\\","/");
 		}
 	}
 

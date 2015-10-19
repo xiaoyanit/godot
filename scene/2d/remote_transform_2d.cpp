@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -45,7 +45,7 @@ void RemoteTransform2D::_update_cache() {
 void RemoteTransform2D::_update_remote() {
 
 
-	if (!is_inside_scene())
+	if (!is_inside_tree())
 		return;
 
 	if (!cache)
@@ -59,7 +59,7 @@ void RemoteTransform2D::_update_remote() {
 	if (!n)
 		return;
 
-	if (!n->is_inside_scene())
+	if (!n->is_inside_tree())
 		return;
 
 					//todo make faster
@@ -77,7 +77,7 @@ void RemoteTransform2D::_notification(int p_what) {
 
 		} break;
 		case NOTIFICATION_TRANSFORM_CHANGED: {
-			if (!is_inside_scene())
+			if (!is_inside_tree())
 				break;
 
 			if (cache) {
@@ -95,7 +95,7 @@ void RemoteTransform2D::_notification(int p_what) {
 void RemoteTransform2D::set_remote_node(const NodePath& p_remote_node) {
 
 	remote_node=p_remote_node;
-	if (is_inside_scene())
+	if (is_inside_tree())
 		_update_cache();
 }
 

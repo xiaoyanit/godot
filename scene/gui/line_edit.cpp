@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -212,7 +212,7 @@ void LineEdit::_input_event(InputEvent p_event) {
 
 						emit_signal( "text_entered",text );
                         // notify to hide soft keyboard
-                        notification(NOTIFICATION_FOCUS_EXIT);
+						   notification(NOTIFICATION_FOCUS_EXIT);
 						return;
 					} break;
 
@@ -272,7 +272,7 @@ void LineEdit::_input_event(InputEvent p_event) {
 
 							if (editable) {
 								selection_delete();
-								CharType ucodestr[2]={k.unicode,0};
+								CharType ucodestr[2]={(CharType)k.unicode,0};
 								append_at_cursor(ucodestr);
 								emit_signal("text_changed",text);
 								_change_notify("text");
@@ -323,9 +323,12 @@ bool LineEdit::can_drop_data(const Point2& p_point,const Variant& p_data) const{
 void LineEdit::drop_data(const Point2& p_point,const Variant& p_data){
 
 	if (p_data.get_type()==Variant::STRING) {
-
 		set_cursor_at_pixel_pos(p_point.x);
+		int selected = selection.end - selection.begin;
+		text.erase(selection.begin, selected);
 		append_at_cursor(p_data);
+		selection.begin = cursor_pos-selected;
+		selection.end = cursor_pos;
 	}
 }
 
@@ -569,7 +572,7 @@ void LineEdit::set_cursor_pos(int p_pos) {
 //	set_window_pos(cursor_pos-get_window_lengt//h());
 //	}
 	
-	if (!is_inside_scene()) {
+	if (!is_inside_tree()) {
 		
 		window_pos=cursor_pos;
 		return;
@@ -674,6 +677,7 @@ void LineEdit::selection_delete() {
 		
 		undo_text = text;
 		text.erase(selection.begin,selection.end-selection.begin);
+		cursor_pos-=CLAMP( cursor_pos-selection.begin, 0, selection.end-selection.begin);
 		
 		if (cursor_pos>=text.length()) {
 			
@@ -778,6 +782,10 @@ void LineEdit::select(int p_from, int p_to) {
 	update();
 }
 
+bool LineEdit::is_text_field() const {
+
+    return true;
+}
 
 void LineEdit::_bind_methods() {
 	

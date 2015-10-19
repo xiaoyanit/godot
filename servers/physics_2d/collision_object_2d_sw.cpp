@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -55,6 +55,14 @@ void CollisionObject2DSW::set_shape(int p_index,Shape2DSW *p_shape){
 	_shapes_changed();
 
 }
+
+void CollisionObject2DSW::set_shape_metadata(int p_index,const Variant& p_metadata) {
+
+	ERR_FAIL_INDEX(p_index,shapes.size());
+	shapes[p_index].metadata=p_metadata;
+
+}
+
 void CollisionObject2DSW::set_shape_transform(int p_index,const Matrix32& p_transform){
 
 	ERR_FAIL_INDEX(p_index,shapes.size());
@@ -218,5 +226,7 @@ CollisionObject2DSW::CollisionObject2DSW(Type p_type) {
 	type=p_type;
 	space=NULL;
 	instance_id=0;
-	user_mask=0;
+	collision_mask=1;
+	layer_mask=1;
+	pickable=true;
 }

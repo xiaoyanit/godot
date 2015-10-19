@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,7 +30,7 @@
 #include "os/keyboard.h"
 #include "print_string.h"
 #include "button_group.h"
-
+#include "scene/scene_string_names.h"
 
 void BaseButton::_input_event(InputEvent p_event) {
 
@@ -56,13 +56,25 @@ void BaseButton::_input_event(InputEvent p_event) {
 
 					if (!toggle_mode) { //mouse press attempt
 
+						status.press_attempt=true;
+						status.pressing_inside=true;
+
 						pressed();
+						if (get_script_instance()) {
+							Variant::CallError ce;
+							get_script_instance()->call(SceneStringNames::get_singleton()->_pressed,NULL,0,ce);
+						}
+
 						emit_signal("pressed");
 
 					} else {
 
 						status.pressed=!status.pressed;
 						pressed();
+						if (get_script_instance()) {
+							Variant::CallError ce;
+							get_script_instance()->call(SceneStringNames::get_singleton()->_pressed,NULL,0,ce);
+						}
 						emit_signal("pressed");
 
 						toggled(status.pressed);
@@ -71,8 +83,15 @@ void BaseButton::_input_event(InputEvent p_event) {
 					}
 
 
-				}
+				} else {
 
+					if (status.press_attempt && status.pressing_inside) {
+//						released();
+						emit_signal("released");
+					}
+					status.press_attempt=false;
+				}
+				update();
 				break;
 			}
 
@@ -85,14 +104,19 @@ void BaseButton::_input_event(InputEvent p_event) {
 				
 				
 				if (status.press_attempt &&status.pressing_inside) {
-						
+
 					if (!toggle_mode) { //mouse press attempt
-					
+
 						pressed();
-						emit_signal("pressed");										
+						if (get_script_instance()) {
+							Variant::CallError ce;
+							get_script_instance()->call(SceneStringNames::get_singleton()->_pressed,NULL,0,ce);
+						}
+
+						emit_signal("pressed");
 						
 					} else {
-					
+
 						status.pressed=!status.pressed;
 						
 						pressed();
@@ -100,11 +124,15 @@ void BaseButton::_input_event(InputEvent p_event) {
 						
 						toggled(status.pressed);
 						emit_signal("toggled",status.pressed);
-					
+						if (get_script_instance()) {
+							get_script_instance()->call(SceneStringNames::get_singleton()->_toggled,status.pressed);
+						}
+
+
 					}
-		
+
 				}
-			
+
 				status.press_attempt=false;
 				
 			}
@@ -120,6 +148,7 @@ void BaseButton::_input_event(InputEvent p_event) {
 					update();
 			}
 		} break;
+		case InputEvent::ACTION:
 		case InputEvent::JOYSTICK_BUTTON:
 		case InputEvent::KEY: {
 		
@@ -167,6 +196,9 @@ void BaseButton::_input_event(InputEvent p_event) {
 						emit_signal("pressed");
 						
 						toggled(status.pressed);
+						if (get_script_instance()) {
+							get_script_instance()->call(SceneStringNames::get_singleton()->_toggled,status.pressed);
+						}
 						emit_signal("toggled",status.pressed);
 					}
 				}
@@ -201,7 +233,7 @@ void BaseButton::_notification(int p_what) {
 		}
 	}
 
-	if (p_what==NOTIFICATION_ENTER_SCENE) {
+	if (p_what==NOTIFICATION_ENTER_TREE) {
 
 		CanvasItem *ci=this;
 		while(ci) {
@@ -217,12 +249,22 @@ void BaseButton::_notification(int p_what) {
 		}
 	}
 
-	if (p_what==NOTIFICATION_EXIT_SCENE) {
+	if (p_what==NOTIFICATION_EXIT_TREE) {
 
 		if (group)
 			group->_remove_button(this);
 	}
 
+	if (p_what==NOTIFICATION_VISIBILITY_CHANGED && !is_visible()) {
+
+		if (!toggle_mode) {
+			status.pressed = false;
+		}
+		status.hovering = false;
+		status.press_attempt = false;
+		status.pressing_inside = false;
+		status.pressing_button = 0;
+	}
 }
 
 void BaseButton::pressed() {
@@ -248,12 +290,12 @@ void BaseButton::set_disabled(bool p_disabled) {
 		set_focus_mode(FOCUS_NONE);
 	else
 		set_focus_mode(FOCUS_ALL);
-};
+}
 
 bool BaseButton::is_disabled() const {
 
 	return status.disabled;
-};
+}
 
 void BaseButton::set_pressed(bool p_pressed) {
 	
@@ -276,6 +318,10 @@ bool BaseButton::is_pressed() const {
 	return toggle_mode?status.pressed:status.press_attempt;
 }
 
+bool BaseButton::is_hovered() const {
+
+	return status.hovering;
+}
 
 BaseButton::DrawMode BaseButton::get_draw_mode() const {
 	
@@ -332,23 +378,38 @@ bool BaseButton::get_click_on_press() const {
 }
 
 
+
+
 void BaseButton::_bind_methods() {
 
 	ObjectTypeDB::bind_method(_MD("_input_event"),&BaseButton::_input_event);
 	ObjectTypeDB::bind_method(_MD("set_pressed","pressed"),&BaseButton::set_pressed);
 	ObjectTypeDB::bind_method(_MD("is_pressed"),&BaseButton::is_pressed);
+	ObjectTypeDB::bind_method(_MD("is_hovered"),&BaseButton::is_hovered);
 	ObjectTypeDB::bind_method(_MD("set_toggle_mode","enabled"),&BaseButton::set_toggle_mode);
 	ObjectTypeDB::bind_method(_MD("is_toggle_mode"),&BaseButton::is_toggle_mode);
 	ObjectTypeDB::bind_method(_MD("set_disabled","disabled"),&BaseButton::set_disabled);
 	ObjectTypeDB::bind_method(_MD("is_disabled"),&BaseButton::is_disabled);
 	ObjectTypeDB::bind_method(_MD("set_click_on_press","enable"),&BaseButton::set_click_on_press);
 	ObjectTypeDB::bind_method(_MD("get_click_on_press"),&BaseButton::get_click_on_press);
+	ObjectTypeDB::bind_method(_MD("get_draw_mode"),&BaseButton::get_draw_mode);
+
+	BIND_VMETHOD(MethodInfo("_pressed"));
+	BIND_VMETHOD(MethodInfo("_toggled",PropertyInfo(Variant::BOOL,"pressed")));
 
 	ADD_SIGNAL( MethodInfo("pressed" ) );
+	ADD_SIGNAL( MethodInfo("released" ) );
 	ADD_SIGNAL( MethodInfo("toggled", PropertyInfo( Variant::BOOL,"pressed") ) );
-	ADD_PROPERTY( PropertyInfo( Variant::BOOL, "disabled"), _SCS("set_disabled"), _SCS("is_disabled"));
+	ADD_PROPERTYNZ( PropertyInfo( Variant::BOOL, "disabled"), _SCS("set_disabled"), _SCS("is_disabled"));
 	ADD_PROPERTY( PropertyInfo( Variant::BOOL, "toggle_mode"), _SCS("set_toggle_mode"), _SCS("is_toggle_mode"));
-	ADD_PROPERTY( PropertyInfo( Variant::BOOL, "click_on_press"), _SCS("set_click_on_press"), _SCS("get_click_on_press"));
+	ADD_PROPERTYNZ( PropertyInfo( Variant::BOOL, "is_pressed"), _SCS("set_pressed"), _SCS("is_pressed"));
+	ADD_PROPERTYNZ( PropertyInfo( Variant::BOOL, "click_on_press"), _SCS("set_click_on_press"), _SCS("get_click_on_press"));
+
+
+	BIND_CONSTANT( DRAW_NORMAL );
+	BIND_CONSTANT( DRAW_PRESSED );
+	BIND_CONSTANT( DRAW_HOVER );
+	BIND_CONSTANT( DRAW_DISABLED );
 
 }
 

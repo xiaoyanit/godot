@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -45,14 +45,14 @@ void Position2D::_notification(int p_what) {
 
 	switch(p_what) {
 
-		case NOTIFICATION_ENTER_SCENE: {
+		case NOTIFICATION_ENTER_TREE: {
 
 			update();
 		} break;
 		case NOTIFICATION_DRAW: {
-			if (!is_inside_scene())
+			if (!is_inside_tree())
 				break;
-			if (get_scene()->is_editor_hint())
+			if (get_tree()->is_editor_hint())
 				_draw_cross();
 
 		} break;

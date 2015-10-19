@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -41,8 +41,8 @@ bool Skeleton::_set(const StringName& p_path, const Variant& p_value) {
 	if (!path.begins_with("bones/"))
 		return false;
 		
-	int which=path.get_slice("/",1).to_int();
-	String what=path.get_slice("/",2);
+	int which=path.get_slicec('/',1).to_int();
+	String what=path.get_slicec('/',2);
 
 
 	if (which==bones.size() && what=="name") {
@@ -88,8 +88,8 @@ bool Skeleton::_get(const StringName& p_name,Variant &r_ret) const {
 	if (!path.begins_with("bones/"))
 		return false;
 		
-	int which=path.get_slice("/",1).to_int();
-	String what=path.get_slice("/",2);
+	int which=path.get_slicec('/',1).to_int();
+	String what=path.get_slicec('/',2);
 		
 	ERR_FAIL_INDEX_V( which, bones.size(), false );
 	
@@ -187,30 +187,59 @@ void Skeleton::_notification(int p_what) {
 			
 				Bone &b=bonesptr[i];
 		
-				if (b.enabled) {
+				if (b.disable_rest) {
+					if (b.enabled) {
 
-					Transform pose=b.pose;
-					if (b.custom_pose_enable) {
+						Transform pose=b.pose;
+						if (b.custom_pose_enable) {
 
-						pose = b.custom_pose * pose;
-					}
+							pose = b.custom_pose * pose;
+						}
 
-					if (b.parent>=0) {
-					
-						b.pose_global=bonesptr[b.parent].pose_global * (b.rest * pose);
+						if (b.parent>=0) {
+
+							b.pose_global=bonesptr[b.parent].pose_global * pose;
+						} else {
+
+							b.pose_global=pose;
+						}
 					} else {
-					
-						b.pose_global=b.rest * pose;
+
+						if (b.parent>=0) {
+
+							b.pose_global=bonesptr[b.parent].pose_global;
+						} else {
+
+							b.pose_global=Transform();
+						}
 					}
+
 				} else {
-				
-					if (b.parent>=0) {
-					
-						b.pose_global=bonesptr[b.parent].pose_global * b.rest;
+					if (b.enabled) {
+
+						Transform pose=b.pose;
+						if (b.custom_pose_enable) {
+
+							pose = b.custom_pose * pose;
+						}
+
+						if (b.parent>=0) {
+
+							b.pose_global=bonesptr[b.parent].pose_global * (b.rest * pose);
+						} else {
+
+							b.pose_global=b.rest * pose;
+						}
 					} else {
-					
-						b.pose_global=b.rest;				
-					}				
+
+						if (b.parent>=0) {
+
+							b.pose_global=bonesptr[b.parent].pose_global * b.rest;
+						} else {
+
+							b.pose_global=b.rest;
+						}
+					}
 				}
 				
 				vs->skeleton_bone_set_transform( skeleton, i,  b.pose_global * b.rest_global_inverse );
@@ -235,6 +264,29 @@ Transform Skeleton::get_bone_transform(int p_bone) const {
 	if (dirty)
 		const_cast<Skeleton*>(this)->notification(NOTIFICATION_UPDATE_SKELETON);
 	return bones[p_bone].pose_global * bones[p_bone].rest_global_inverse;
+}
+
+
+void Skeleton::set_bone_global_pose(int p_bone,const Transform& p_pose) {
+
+	ERR_FAIL_INDEX(p_bone,bones.size());
+	if (bones[p_bone].parent==-1) {
+
+		set_bone_pose(p_bone,bones[p_bone].rest_global_inverse * p_pose); //fast
+	} else {
+
+		set_bone_pose(p_bone, bones[p_bone].rest.affine_inverse() * (get_bone_global_pose(bones[p_bone].parent).affine_inverse() * p_pose)); //slow
+
+	}
+
+}
+
+Transform Skeleton::get_bone_global_pose(int p_bone) const {
+
+	ERR_FAIL_INDEX_V(p_bone,bones.size(),Transform());
+	if (dirty)
+		const_cast<Skeleton*>(this)->notification(NOTIFICATION_UPDATE_SKELETON);
+	return bones[p_bone].pose_global;
 }
 
 RID Skeleton::get_skeleton() const {
@@ -291,6 +343,37 @@ void Skeleton::set_bone_parent(int p_bone, int p_parent) {
 	rest_global_inverse_dirty=true;
 	_make_dirty();
 }
+
+void Skeleton::unparent_bone_and_rest(int p_bone) {
+
+	ERR_FAIL_INDEX( p_bone, bones.size() );
+
+	int parent=bones[p_bone].parent;
+	while(parent>=0) {
+		bones[p_bone].rest = bones[parent].rest * bones[p_bone].rest;
+		parent=bones[parent].parent;
+	}
+
+	bones[p_bone].parent=-1;
+	bones[p_bone].rest_global_inverse=bones[p_bone].rest.affine_inverse(); //same thing
+
+	_make_dirty();
+
+}
+
+void Skeleton::set_bone_disable_rest(int p_bone, bool p_disable) {
+
+	ERR_FAIL_INDEX( p_bone, bones.size() );
+	bones[p_bone].disable_rest=p_disable;
+
+}
+
+bool Skeleton::is_bone_rest_disabled(int p_bone) const {
+
+	ERR_FAIL_INDEX_V( p_bone, bones.size(), false );
+	return bones[p_bone].disable_rest;
+}
+
 
 int Skeleton::get_bone_parent(int p_bone) const {
 
@@ -381,7 +464,7 @@ void Skeleton::clear_bones() {
 void Skeleton::set_bone_pose(int p_bone, const Transform& p_pose) {
 
 	ERR_FAIL_INDEX( p_bone, bones.size() );
-	ERR_FAIL_COND( !is_inside_scene() );
+	ERR_FAIL_COND( !is_inside_tree() );
 	
 
 	bones[p_bone].pose=p_pose;
@@ -419,7 +502,7 @@ void Skeleton::_make_dirty() {
 	if (dirty)
 		return;
 		
-	if (!is_inside_scene()) {
+	if (!is_inside_tree()) {
 		dirty=true;
 		return;
 	}
@@ -445,7 +528,7 @@ RES Skeleton::_get_gizmo_geometry() const {
 	mat->set_flag(Material::FLAG_DOUBLE_SIDED,true);
 	mat->set_flag(Material::FLAG_UNSHADED,true);
 	mat->set_flag(Material::FLAG_ONTOP,true);
-	mat->set_hint(Material::HINT_NO_DEPTH_DRAW,true);
+//	mat->set_hint(Material::HINT_NO_DEPTH_DRAW,true);
 
 	surface_tool->begin(Mesh::PRIMITIVE_LINES);
 	surface_tool->set_material(mat);
@@ -499,8 +582,13 @@ void Skeleton::_bind_methods() {
 	
 	ObjectTypeDB::bind_method(_MD("get_bone_count"),&Skeleton::get_bone_count);
 
+	ObjectTypeDB::bind_method(_MD("unparent_bone_and_rest","bone_idx"),&Skeleton::unparent_bone_and_rest);
+
 	ObjectTypeDB::bind_method(_MD("get_bone_rest","bone_idx"),&Skeleton::get_bone_rest);
 	ObjectTypeDB::bind_method(_MD("set_bone_rest","bone_idx","rest"),&Skeleton::set_bone_rest);
+
+	ObjectTypeDB::bind_method(_MD("set_bone_disable_rest","bone_idx","disable"),&Skeleton::set_bone_disable_rest);
+	ObjectTypeDB::bind_method(_MD("is_bone_rest_disabled","bone_idx"),&Skeleton::is_bone_rest_disabled);
 
 	ObjectTypeDB::bind_method(_MD("bind_child_node_to_bone","bone_idx","node:Node"),&Skeleton::bind_child_node_to_bone);
 	ObjectTypeDB::bind_method(_MD("unbind_child_node_from_bone","bone_idx","node:Node"),&Skeleton::unbind_child_node_from_bone);
@@ -510,6 +598,9 @@ void Skeleton::_bind_methods() {
 	
 	ObjectTypeDB::bind_method(_MD("get_bone_pose","bone_idx"),&Skeleton::get_bone_pose);
 	ObjectTypeDB::bind_method(_MD("set_bone_pose","bone_idx","pose"),&Skeleton::set_bone_pose);
+
+	ObjectTypeDB::bind_method(_MD("set_bone_global_pose","bone_idx","pose"),&Skeleton::set_bone_global_pose);
+	ObjectTypeDB::bind_method(_MD("get_bone_global_pose","bone_idx"),&Skeleton::get_bone_global_pose);
 
 	ObjectTypeDB::bind_method(_MD("get_bone_custom_pose","bone_idx"),&Skeleton::get_bone_custom_pose);
 	ObjectTypeDB::bind_method(_MD("set_bone_custom_pose","bone_idx","custom_pose"),&Skeleton::set_bone_custom_pose);

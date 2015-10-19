@@ -278,6 +278,7 @@ void EditorFileServer::_thread_start(void*s) {
 			self->to_wait.erase(w);
 			self->wait_mutex->unlock();
 			Thread::wait_to_finish(w);
+			memdelete(w);
 			self->wait_mutex->lock();
 		}
 		self->wait_mutex->unlock();
@@ -311,11 +312,11 @@ void EditorFileServer::stop(){
 EditorFileServer::EditorFileServer() {
 
 	server = TCP_Server::create_ref();
-	thread=Thread::create(_thread_start,this);
 	wait_mutex = Mutex::create();
 	quit=false;
 	active=false;
 	cmd=CMD_NONE;
+	thread=Thread::create(_thread_start,this);
 
 	EDITOR_DEF("file_server/port",6010);
 	EDITOR_DEF("file_server/password","");
@@ -323,7 +324,9 @@ EditorFileServer::EditorFileServer() {
 
 EditorFileServer::~EditorFileServer() {
 
+
 	quit=true;
 	Thread::wait_to_finish(thread);
+	memdelete(thread);
 	memdelete(wait_mutex);
 }

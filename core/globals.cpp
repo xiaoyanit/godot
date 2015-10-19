@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -54,7 +54,7 @@ String Globals::localize_path(const String& p_path) const {
 	if (resource_path=="")
 		return p_path; //not initialied yet
 
-	if (p_path.begins_with("res://"))
+	if (p_path.find(":/") != -1)
 		return p_path.simplify_path();
 
 
@@ -243,11 +243,26 @@ bool Globals::_load_resource_pack(const String& p_pack) {
 	return true;
 }
 
-Error Globals::setup(const String& p_path) {
+Error Globals::setup(const String& p_path,const String & p_main_pack) {
 
 	//an absolute mess of a function, must be cleaned up and reorganized somehow at some point
 	
 	//_load_settings(p_path+"/override.cfg");
+
+	if (p_main_pack!="") {
+
+		bool ok = _load_resource_pack(p_main_pack);
+		ERR_FAIL_COND_V(!ok,ERR_CANT_OPEN);
+
+		if (_load_settings("res://engine.cfg")==OK || _load_settings_binary("res://engine.cfb")==OK) {
+
+			_load_settings("res://override.cfg");
+
+		}
+
+		return OK;
+
+	}
 
 	if (OS::get_singleton()->get_executable_path()!="") {
 
@@ -324,7 +339,7 @@ Error Globals::setup(const String& p_path) {
 			//try to load settings in ascending through dirs shape!
 
 			//tries to open pack, but only first time
-			if (first_time && _load_resource_pack(current_dir+"/data.pck")) {
+			if (first_time && (_load_resource_pack(current_dir+"/data.pck") || _load_resource_pack(current_dir+"/data.pcz") )) {
 				if (_load_settings("res://engine.cfg")==OK || _load_settings_binary("res://engine.cfb")==OK) {
 
 					_load_settings("res://override.cfg");
@@ -551,9 +566,11 @@ static Variant _decode_variant(const String& p_string) {
 		ERR_FAIL_COND_V(params.size()!=1 && params.size()!=2,Variant());
 		int scode=0;
 
-		if (params[0].is_numeric())
+		if (params[0].is_numeric()) {
 			scode=params[0].to_int();
-		else
+			if (scode<10)
+				scode+=KEY_0;
+		} else
 			scode=find_keycode(params[0]);
 
 		InputEvent ie;
@@ -657,7 +674,7 @@ static Variant _decode_variant(const String& p_string) {
 		int w=params[2].to_int();
 		int h=params[3].to_int();
 
-		if (w == 0 && w == 0) {
+		if (w == 0 && h == 0) {
 			//r_v = Image(w, h, imgformat);
 			return Image();
 		};
@@ -1132,6 +1149,12 @@ Error Globals::_save_settings_text(const String& p_file,const Map<String,List<St
 
 	return OK;
 }
+
+Error Globals::_save_custom_bnd(const String &p_file) { // add other params as dictionary and array?
+
+	return save_custom(p_file);
+};
+
 Error Globals::save_custom(const String& p_path,const CustomMap& p_custom,const Set<String>& p_ignore_masks) {
 
 	ERR_FAIL_COND_V(p_path=="",ERR_INVALID_PARAMETER);
@@ -1304,7 +1327,7 @@ Vector<String> Globals::get_optimizer_presets() const {
 
 		if (!E->get().name.begins_with("optimizer_presets/"))
 			continue;
-		names.push_back(E->get().name.get_slice("/",1));
+		names.push_back(E->get().name.get_slicec('/',1));
 	}
 
 	names.sort();
@@ -1343,6 +1366,10 @@ void Globals::_bind_methods() {
 	ObjectTypeDB::bind_method(_MD("save"),&Globals::save);
 	ObjectTypeDB::bind_method(_MD("has_singleton"),&Globals::has_singleton);
 	ObjectTypeDB::bind_method(_MD("get_singleton"),&Globals::get_singleton_object);
+	ObjectTypeDB::bind_method(_MD("load_resource_pack"),&Globals::_load_resource_pack);
+
+	ObjectTypeDB::bind_method(_MD("save_custom"),&Globals::_save_custom_bnd);
+
 }
 
 Globals::Globals() {
@@ -1363,7 +1390,9 @@ Globals::Globals() {
 
 	set("application/name","" );
 	set("application/main_scene","");
-	custom_prop_info["application/main_scene"]=PropertyInfo(Variant::STRING,"application/main_scene",PROPERTY_HINT_FILE,"xml,res,scn,xscn");
+	custom_prop_info["application/main_scene"]=PropertyInfo(Variant::STRING,"application/main_scene",PROPERTY_HINT_FILE,"scn,res,xscn,xml");
+	set("application/disable_stdout",false);
+	set("application/use_shared_user_dir",true);
 
 
 	key.key.scancode=KEY_RETURN;
@@ -1375,6 +1404,13 @@ Globals::Globals() {
 	joyb.joy_button.button_index=JOY_BUTTON_0;
 	va.push_back(joyb);
 	set("input/ui_accept",va);
+
+	va=Array();
+	key.key.scancode=KEY_SPACE;
+	va.push_back(key);
+	joyb.joy_button.button_index=JOY_BUTTON_3;
+	va.push_back(joyb);
+	set("input/ui_select",va);
 
 	va=Array();
 	key.key.scancode=KEY_ESCAPE;
@@ -1440,7 +1476,7 @@ Globals::Globals() {
 	custom_prop_info["display/orientation"]=PropertyInfo(Variant::STRING,"display/orientation",PROPERTY_HINT_ENUM,"landscape,portrait,reverse_landscape,reverse_portrait,sensor_landscape,sensor_portrait,sensor");
 	custom_prop_info["render/mipmap_policy"]=PropertyInfo(Variant::INT,"render/mipmap_policy",PROPERTY_HINT_ENUM,"Allow,Allow For Po2,Disallow");
 	custom_prop_info["render/thread_model"]=PropertyInfo(Variant::INT,"render/thread_model",PROPERTY_HINT_ENUM,"Single-Unsafe,Single-Safe,Multi-Threaded");
-	set("display/emulate_touchscreen",false);
+	custom_prop_info["physics_2d/thread_model"]=PropertyInfo(Variant::INT,"physics_2d/thread_model",PROPERTY_HINT_ENUM,"Single-Unsafe,Single-Safe,Multi-Threaded");
 
 	using_datapack=false;
 }

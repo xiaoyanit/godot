@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -55,7 +55,7 @@ public:
 		ANCHOR_BEGIN,
 		ANCHOR_END,
 		ANCHOR_RATIO,
-        ANCHOR_CENTER,
+		ANCHOR_CENTER,
 	};
 	
 	enum FocusMode {
@@ -380,7 +380,9 @@ public:
 
 	void grab_click_focus();
 
+	void warp_mouse(const Point2& p_to_pos);
 
+    virtual bool is_text_field() const;
 
 	Control();	
 	~Control();

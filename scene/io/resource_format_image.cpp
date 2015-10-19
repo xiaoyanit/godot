@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,9 +31,11 @@
 #include "io/image_loader.h"
 #include "globals.h"
 #include "os/os.h"
-RES ResourceFormatLoaderImage::load(const String &p_path,const String& p_original_path) {
+RES ResourceFormatLoaderImage::load(const String &p_path, const String& p_original_path, Error *r_error) {
 	
-	
+	if (r_error)
+		*r_error=ERR_CANT_OPEN;
+
 	if (p_path.extension()=="cube") {
 		// open as cubemap txture
 
@@ -83,6 +85,8 @@ RES ResourceFormatLoaderImage::load(const String &p_path,const String& p_origina
 		memdelete(f);
 
 		cubemap->set_name(p_path.get_file());
+		if (r_error)
+			*r_error=OK;
 
 		return cubemap;
 	
@@ -112,6 +116,8 @@ RES ResourceFormatLoaderImage::load(const String &p_path,const String& p_origina
 
 		ERR_EXPLAIN("Failed loading image: "+p_path);
 		ERR_FAIL_COND_V(err, RES());		
+		if (r_error)
+			*r_error=ERR_FILE_CORRUPT;
 
 #ifdef DEBUG_ENABLED
 #ifdef TOOLS_ENABLED
@@ -131,14 +137,60 @@ RES ResourceFormatLoaderImage::load(const String &p_path,const String& p_origina
 		
 		
 		uint32_t flags=0;
-		if (bool(GLOBAL_DEF("image_loader/filter",true)))
+
+		FileAccess *f2 = FileAccess::open(p_path+".flags",FileAccess::READ);
+		Map<String,bool> flags_found;
+		if (f2) {
+
+			while(!f2->eof_reached()) {
+				String l2 = f2->get_line();
+				int eqpos = l2.find("=");
+				if (eqpos!=-1) {
+					String flag=l2.substr(0,eqpos).strip_edges();
+					String val=l2.substr(eqpos+1,l2.length()).strip_edges().to_lower();
+					flags_found[flag]=(val=="true" || val=="1")?true:false;
+				}
+			}
+			memdelete(f2);
+		}
+
+
+		if (flags_found.has("filter")) {
+			if (flags_found["filter"])
+				flags|=Texture::FLAG_FILTER;
+		} else if (bool(GLOBAL_DEF("image_loader/filter",true))) {
 			flags|=Texture::FLAG_FILTER;
-		if (bool(GLOBAL_DEF("image_loader/gen_mipmaps",true)))
+		}
+
+
+		if (flags_found.has("gen_mipmaps")) {
+			if (flags_found["gen_mipmaps"])
+				flags|=Texture::FLAG_MIPMAPS;
+		} else if (bool(GLOBAL_DEF("image_loader/gen_mipmaps",true))) {
 			flags|=Texture::FLAG_MIPMAPS;
-		if (bool(GLOBAL_DEF("image_loader/repeat",false)))
+		}
+
+		if (flags_found.has("repeat")) {
+			if (flags_found["repeat"])
+				flags|=Texture::FLAG_REPEAT;
+		} else if (bool(GLOBAL_DEF("image_loader/repeat",true))) {
 			flags|=Texture::FLAG_REPEAT;
+		}
 
+		if (flags_found.has("anisotropic")) {
+			if (flags_found["anisotropic"])
+				flags|=Texture::FLAG_ANISOTROPIC_FILTER;
+		}
 
+		if (flags_found.has("tolinear")) {
+			if (flags_found["tolinear"])
+				flags|=Texture::FLAG_CONVERT_TO_LINEAR;
+		}
+		
+		if (flags_found.has("mirroredrepeat")) {
+			if (flags_found["mirroredrepeat"])
+				flags|=Texture::FLAG_MIRRORED_REPEAT;
+		}
 
 		if (debug_load_times)
 			begtime=OS::get_singleton()->get_ticks_usec();
@@ -152,6 +204,9 @@ RES ResourceFormatLoaderImage::load(const String &p_path,const String& p_origina
 			total=(double)(OS::get_singleton()->get_ticks_usec()-begtime)/1000000.0;
 			print_line("  -make texture: "+rtos(total));
 		}
+
+		if (r_error)
+			*r_error=OK;
 
 		return RES( texture );
 	}

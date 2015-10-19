@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,6 +31,7 @@
 #include "global_constants.h"
 #include "gd_compiler.h"
 #include "os/file_access.h"
+#include "io/file_access_encrypted.h"
 
 /* TODO:
 
@@ -61,6 +62,10 @@ Variant *GDFunction::_get_variant(int p_address,GDInstance *p_instance,GDScript 
 			}
 			return &self;
 		} break;
+		case ADDR_TYPE_CLASS: {
+
+			return &p_script->_static_ref;
+		} break;
 		case ADDR_TYPE_MEMBER: {
 			//member indexing is O(1)
 			if (!p_instance) {
@@ -72,16 +77,21 @@ Variant *GDFunction::_get_variant(int p_address,GDInstance *p_instance,GDScript 
 		case ADDR_TYPE_CLASS_CONSTANT: {
 
 			//todo change to index!
-			GDScript *s=p_script;
+			GDScript *o=p_script;
 			ERR_FAIL_INDEX_V(address,_global_names_count,NULL);
 			const StringName *sn = &_global_names_ptr[address];
 
-			while(s) {
-				Map<StringName,Variant>::Element *E=s->constants.find(*sn);
-				if (E) {
-					return &E->get();
+			while(o) {
+				GDScript *s=o;
+				while(s) {
+
+					Map<StringName,Variant>::Element *E=s->constants.find(*sn);
+					if (E) {
+						return &E->get();
+					}
+					s=s->_base;
 				}
-				s=s->_base;
+				o=o->_owner;
 			}
 
 
@@ -130,7 +140,7 @@ String GDFunction::_get_call_error(const Variant::CallError& p_err, const String
 	} else if (p_err.error==Variant::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS) {
 		err_text="Invalid call to "+p_where+". Expected "+itos(p_err.argument)+" arguments.";
 	} else if (p_err.error==Variant::CallError::CALL_ERROR_INVALID_METHOD) {
-		err_text="Invalid call. Unexisting "+p_where+".";
+		err_text="Invalid call. Nonexistent "+p_where+".";
 	} else if (p_err.error==Variant::CallError::CALL_ERROR_INSTANCE_IS_NULL) {
 		err_text="Attempt to call "+p_where+" on a null instance.";
 	} else {
@@ -173,7 +183,7 @@ static String _get_var_type(const Variant* p_type) {
 
 }
 
-Variant GDFunction::call(GDInstance *p_instance,const Variant **p_args, int p_argcount,Variant::CallError& r_err) {
+Variant GDFunction::call(GDInstance *p_instance, const Variant **p_args, int p_argcount, Variant::CallError& r_err, CallState *p_state) {
 
 
 	if (!_code_ptr) {
@@ -195,76 +205,90 @@ Variant GDFunction::call(GDInstance *p_instance,const Variant **p_args, int p_ar
 
 #endif
 
-	if (p_argcount!=_argument_count) {
+	uint32_t alloca_size=0;
+	GDScript *_class;
+	int ip=0;
+	int line=_initial_line;
 
-		if (p_argcount>_argument_count) {
+	if (p_state) {
+		//use existing (supplied) state (yielded)
+		stack=(Variant*)p_state->stack.ptr();
+		call_args=(Variant**)&p_state->stack[sizeof(Variant)*p_state->stack_size];
+		line=p_state->line;
+		ip=p_state->ip;
+		alloca_size=p_state->stack.size();
+		_class=p_state->_class;
+		p_instance=p_state->instance;
+		defarg=p_state->defarg;
+		self=p_state->self;
+		//stack[p_state->result_pos]=p_state->result; //assign stack with result
 
-			r_err.error=Variant::CallError::CALL_ERROR_TOO_MANY_ARGUMENTS;
-			r_err.argument=_argument_count;
+	} else {
 
-			return Variant();
-		} else if (p_argcount < _argument_count - _default_arg_count) {
+		if (p_argcount!=_argument_count) {
 
-			r_err.error=Variant::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
-			r_err.argument=_argument_count - _default_arg_count;
-			return Variant();
-		} else {
+			if (p_argcount>_argument_count) {
 
-			defarg=_argument_count-p_argcount;
+				r_err.error=Variant::CallError::CALL_ERROR_TOO_MANY_ARGUMENTS;
+				r_err.argument=_argument_count;
+
+				return Variant();
+			} else if (p_argcount < _argument_count - _default_arg_count) {
+
+				r_err.error=Variant::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
+				r_err.argument=_argument_count - _default_arg_count;
+				return Variant();
+			} else {
+
+				defarg=_argument_count-p_argcount;
+			}
 		}
-	}
 
-	uint32_t alloca_size = sizeof(Variant*)*_call_size + sizeof(Variant)*_stack_size;
+		alloca_size = sizeof(Variant*)*_call_size + sizeof(Variant)*_stack_size;
 
-	if (alloca_size) {
+		if (alloca_size) {
 
-		uint8_t *aptr = (uint8_t*)alloca(alloca_size);
+			uint8_t *aptr = (uint8_t*)alloca(alloca_size);
 
-		if (_stack_size) {
+			if (_stack_size) {
 
-			stack=(Variant*)aptr;
-			for(int i=0;i<p_argcount;i++)
-				memnew_placement(&stack[i],Variant(*p_args[i]));
-			for(int i=p_argcount;i<_stack_size;i++)
-				memnew_placement(&stack[i],Variant);
+				stack=(Variant*)aptr;
+				for(int i=0;i<p_argcount;i++)
+					memnew_placement(&stack[i],Variant(*p_args[i]));
+				for(int i=p_argcount;i<_stack_size;i++)
+					memnew_placement(&stack[i],Variant);
+			} else {
+				stack=NULL;
+			}
+
+			if (_call_size) {
+
+				call_args = (Variant**)&aptr[sizeof(Variant)*_stack_size];
+			} else {
+
+				call_args=NULL;
+			}
+
+
 		} else {
 			stack=NULL;
-		}
-
-		if (_call_size) {
-
-			call_args = (Variant**)&aptr[sizeof(Variant)*_stack_size];
-		} else {
-
 			call_args=NULL;
 		}
 
+		if (p_instance) {
+			if (p_instance->base_ref && static_cast<Reference*>(p_instance->owner)->is_referenced()) {
 
-	} else {
-		stack=NULL;
-		call_args=NULL;
-	}
-
-
-	GDScript *_class;
-
-	if (p_instance) {
-		if (p_instance->base_ref && static_cast<Reference*>(p_instance->owner)->is_referenced()) {
-
-			self=REF(static_cast<Reference*>(p_instance->owner));
+				self=REF(static_cast<Reference*>(p_instance->owner));
+			} else {
+				self=p_instance->owner;
+			}
+			_class=p_instance->script.ptr();
 		} else {
-			self=p_instance->owner;
+			_class=_script;
 		}
-		_class=p_instance->script.ptr();
-	} else {
-		_class=_script;
 	}
 
-	int ip=0;
-	int line=_initial_line;
 	String err_text;
-
-
 
 #ifdef DEBUG_ENABLED
 
@@ -311,16 +335,30 @@ Variant GDFunction::call(GDInstance *p_instance,const Variant **p_args, int p_ar
 				GET_VARIANT_PTR(b,3);
 				GET_VARIANT_PTR(dst,4);
 
+#ifdef DEBUG_ENABLED
+				Variant ret;
+				Variant::evaluate(op,*a,*b,ret,valid);
+#else
 				Variant::evaluate(op,*a,*b,*dst,valid);
+#endif
+
 				if (!valid) {
-					if (false && dst->get_type()==Variant::STRING) {
+#ifdef DEBUG_ENABLED
+
+					if (ret.get_type()==Variant::STRING) {
 						//return a string when invalid with the error
-						err_text=*dst;
+						err_text=ret;
+						err_text += " in operator '"+Variant::get_operator_name(op)+"'.";
 					} else {
 						err_text="Invalid operands '"+Variant::get_type_name(a->get_type())+"' and '"+Variant::get_type_name(b->get_type())+"' in operator '"+Variant::get_operator_name(op)+"'.";
 					}
+#endif
 					break;
+
 				}
+#ifdef DEBUG_ENABLED
+				*dst=ret;
+#endif
 
 				ip+=5;
 
@@ -380,6 +418,8 @@ Variant GDFunction::call(GDInstance *p_instance,const Variant **p_args, int p_ar
 						}
 
 					}
+
+
 				} else {
 
 					GDNativeClass *nc= obj_B->cast_to<GDNativeClass>();
@@ -430,8 +470,13 @@ Variant GDFunction::call(GDInstance *p_instance,const Variant **p_args, int p_ar
 				GET_VARIANT_PTR(dst,3);
 
 				bool valid;
+#ifdef DEBUG_ENABLED
+//allow better error message in cases where src and dst are the same stack position
+				Variant ret = src->get(*index,&valid);
+#else
 				*dst = src->get(*index,&valid);
 
+#endif
 				if (!valid) {
 					String v = index->operator String();
 					if (v!="") {
@@ -442,6 +487,9 @@ Variant GDFunction::call(GDInstance *p_instance,const Variant **p_args, int p_ar
 					err_text="Invalid get index "+v+" (on base: '"+_get_var_type(src)+"').";
 					break;
 				}
+#ifdef DEBUG_ENABLED
+				*dst=ret;
+#endif
 				ip+=4;
 			} continue;
 			case OPCODE_SET_NAMED: {
@@ -481,13 +529,25 @@ Variant GDFunction::call(GDInstance *p_instance,const Variant **p_args, int p_ar
 				const StringName *index = &_global_names_ptr[indexname];
 
 				bool valid;
+#ifdef DEBUG_ENABLED
+//allow better error message in cases where src and dst are the same stack position
+				Variant ret = src->get_named(*index,&valid);
+
+#else
 				*dst = src->get_named(*index,&valid);
+#endif
 
 				if (!valid) {
-					err_text="Invalid get index '"+index->operator String()+"' (on base: '"+_get_var_type(src)+"').";
+					if (src->has_method(*index)) {
+						err_text="Invalid get index '"+index->operator String()+"' (on base: '"+_get_var_type(src)+"'). Did you mean '."+index->operator String()+"()' ?";
+					} else {
+						err_text="Invalid get index '"+index->operator String()+"' (on base: '"+_get_var_type(src)+"').";
+					}
 					break;
 				}
-
+#ifdef DEBUG_ENABLED
+				*dst=ret;
+#endif
 				ip+=4;
 			} continue;
 			case OPCODE_ASSIGN: {
@@ -770,6 +830,97 @@ Variant GDFunction::call(GDInstance *p_instance,const Variant **p_args, int p_ar
 				}
 
 				ip+=4+argc;
+
+			} continue;
+			case OPCODE_YIELD:
+			case OPCODE_YIELD_SIGNAL: {
+
+				int ipofs=1;
+				if (_code_ptr[ip]==OPCODE_YIELD_SIGNAL) {
+					CHECK_SPACE(4);
+					ipofs+=2;
+				} else {
+					CHECK_SPACE(2);
+
+				}
+
+				Ref<GDFunctionState> gdfs = memnew( GDFunctionState );
+				gdfs->function=this;
+
+				gdfs->state.stack.resize(alloca_size);
+				//copy variant stack
+				for(int i=0;i<_stack_size;i++) {
+					memnew_placement(&gdfs->state.stack[sizeof(Variant)*i],Variant(stack[i]));
+				}
+				gdfs->state.stack_size=_stack_size;
+				gdfs->state.self=self;
+				gdfs->state.alloca_size=alloca_size;
+				gdfs->state._class=_class;
+				gdfs->state.ip=ip+ipofs;
+				gdfs->state.line=line;
+				//gdfs->state.result_pos=ip+ipofs-1;
+				gdfs->state.defarg=defarg;
+				gdfs->state.instance=p_instance;
+				gdfs->function=this;
+
+				retvalue=gdfs;
+
+				if (_code_ptr[ip]==OPCODE_YIELD_SIGNAL) {
+					GET_VARIANT_PTR(argobj,1);
+					GET_VARIANT_PTR(argname,2);
+					//do the oneshot connect
+
+					if (argobj->get_type()!=Variant::OBJECT) {
+						err_text="First argument of yield() not of type object.";
+						break;
+					}
+					if (argname->get_type()!=Variant::STRING) {
+						err_text="Second argument of yield() not a string (for signal name).";
+						break;
+					}
+					Object *obj=argobj->operator Object *();
+					String signal = argname->operator String();
+#ifdef DEBUG_ENABLED
+
+					if (!obj) {
+						err_text="First argument of yield() is null.";
+						break;
+					}
+					if (ScriptDebugger::get_singleton()) {
+						if (!ObjectDB::instance_validate(obj)) {
+							err_text="First argument of yield() is a previously freed instance.";
+							break;
+						}
+					}
+					if (signal.length()==0) {
+
+						err_text="Second argument of yield() is an empty string (for signal name).";
+						break;
+					}
+
+#endif
+					Error err = obj->connect(signal,gdfs.ptr(),"_signal_callback",varray(gdfs),Object::CONNECT_ONESHOT);
+					if (err!=OK) {
+						err_text="Error connecting to signal: "+signal+" during yield().";
+						break;
+					}
+
+
+				}
+
+				exit_ok=true;
+
+			} break;
+			case OPCODE_YIELD_RESUME: {
+
+				CHECK_SPACE(2);
+				if (!p_state) {
+					err_text=("Invalid Resume (bug?)");
+					break;
+				}
+				GET_VARIANT_PTR(result,1);
+				*result=p_state->result;
+				ip+=2;
 
 			} continue;
 			case OPCODE_JUMP: {
@@ -1150,8 +1301,98 @@ GDFunction::GDFunction() {
 	_stack_size=0;
 	_call_size=0;
 	name="<anonymous>";
+#ifdef DEBUG_ENABLED
+	_func_cname=NULL;
+#endif
 
 }
+
+/////////////////////
+
+
+Variant GDFunctionState::_signal_callback(const Variant** p_args, int p_argcount, Variant::CallError& r_error) {
+
+	Variant arg;
+	r_error.error=Variant::CallError::CALL_OK;
+
+	ERR_FAIL_COND_V(!function,Variant());
+
+	if (p_argcount==0) {
+		r_error.error=Variant::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
+		r_error.argument=1;
+		return Variant();
+	} else if (p_argcount==1) {
+		//noooneee
+	} else if (p_argcount==2) {
+		arg=*p_args[0];
+	} else {
+		Array extra_args;
+		for(int i=0;i<p_argcount-1;i++) {
+			extra_args.push_back(*p_args[i]);
+		}
+		arg=extra_args;
+	}
+
+	Ref<GDFunctionState> self = *p_args[p_argcount-1];
+
+	if (self.is_null()) {
+		r_error.error=Variant::CallError::CALL_ERROR_INVALID_ARGUMENT;
+		r_error.argument=p_argcount-1;
+		r_error.expected=Variant::OBJECT;
+		return Variant();
+	}
+
+	state.result=arg;
+	Variant ret = function->call(NULL,NULL,0,r_error,&state);
+	function=NULL; //cleaned up;
+	state.result=Variant();
+	return ret;
+}
+
+
+bool GDFunctionState::is_valid() const {
+
+	return function!=NULL;
+}
+
+Variant GDFunctionState::resume(const Variant& p_arg) {
+
+	ERR_FAIL_COND_V(!function,Variant());
+
+	state.result=p_arg;
+	Variant::CallError err;
+	Variant ret = function->call(NULL,NULL,0,err,&state);
+	function=NULL; //cleaned up;
+	state.result=Variant();
+	return ret;
+}
+
+
+void GDFunctionState::_bind_methods() {
+
+	ObjectTypeDB::bind_method(_MD("resume:var","arg"),&GDFunctionState::resume,DEFVAL(Variant()));
+	ObjectTypeDB::bind_method(_MD("is_valid"),&GDFunctionState::is_valid);
+	ObjectTypeDB::bind_native_method(METHOD_FLAGS_DEFAULT,"_signal_callback",&GDFunctionState::_signal_callback,MethodInfo("_signal_callback"));
+
+}
+
+GDFunctionState::GDFunctionState() {
+
+	function=NULL;
+}
+
+GDFunctionState::~GDFunctionState() {
+
+	if (function!=NULL) {
+		//never called, deinitialize stack
+		for(int i=0;i<state.stack_size;i++) {
+			Variant *v=(Variant*)&state.stack[sizeof(Variant)*i];
+			v->~Variant();
+		}
+	}
+}
+
+///////////////////////////
 
 GDNativeClass::GDNativeClass(const StringName& p_name) {
 
@@ -1229,8 +1470,8 @@ GDInstance* GDScript::_create_instance(const Variant** p_args,int p_argcount,Obj
 
 	if (err.error!=Variant::CallError::CALL_OK) {
 		instance->script=Ref<GDScript>();
+		instance->owner->set_script_instance(NULL);
 		instances.erase(p_owner);
-		memdelete(instance);
 		ERR_FAIL_COND_V(err.error!=Variant::CallError::CALL_OK, NULL); //error consrtucting
 	}
 
@@ -1281,7 +1522,9 @@ Variant GDScript::_new(const Variant** p_args,int p_argcount,Variant::CallError&
 
 bool GDScript::can_instance() const {
 
-	return valid; //any script in GDscript can instance
+	//return valid; //any script in GDscript can instance
+	return valid || (!tool && !ScriptServer::is_scripting_enabled());
+
 }
 
 StringName GDScript::get_instance_base_type() const {
@@ -1310,6 +1553,7 @@ void GDScript::_placeholder_erased(PlaceHolderScriptInstance *p_placeholder) {
 	placeholders.erase(p_placeholder);
 }
 
+/*
 void GDScript::_update_placeholder(PlaceHolderScriptInstance *p_placeholder) {
 
 
@@ -1324,7 +1568,7 @@ void GDScript::_update_placeholder(PlaceHolderScriptInstance *p_placeholder) {
 
 			_GDScriptMemberSort ms;
 			ERR_CONTINUE(!scr->member_indices.has(E->key()));
-			ms.index=scr->member_indices[E->key()];
+			ms.index=scr->member_indices[E->key()].index;
 			ms.name=E->key();
 
 			msort.push_back(ms);
@@ -1350,11 +1594,13 @@ void GDScript::_update_placeholder(PlaceHolderScriptInstance *p_placeholder) {
 
 	p_placeholder->update(plist,default_values);
 
-}
+}*/
 #endif
 ScriptInstance* GDScript::instance_create(Object *p_this) {
 
+
 	if (!tool && !ScriptServer::is_scripting_enabled()) {
+
 
 #ifdef TOOLS_ENABLED
 
@@ -1367,7 +1613,8 @@ ScriptInstance* GDScript::instance_create(Object *p_this) {
 		}*/
 		PlaceHolderScriptInstance *si = memnew( PlaceHolderScriptInstance(GDScriptLanguage::get_singleton(),Ref<Script>(this),p_this) );
 		placeholders.insert(si);
-		_update_placeholder(si);
+		//_update_placeholder(si);
+		_update_exports();
 		return si;
 #else
 		return NULL;
@@ -1408,8 +1655,166 @@ String GDScript::get_source_code() const {
 }
 void GDScript::set_source_code(const String& p_code) {
 
+	if (source==p_code)
+		return;
 	source=p_code;
+#ifdef TOOLS_ENABLED
+	source_changed_cache=true;
+	//print_line("SC CHANGED "+get_path());
+#endif
 
+}
+
+#ifdef TOOLS_ENABLED
+void GDScript::_update_exports_values(Map<StringName,Variant>& values, List<PropertyInfo> &propnames) {
+
+	if (base_cache.is_valid()) {
+		base_cache->_update_exports_values(values,propnames);
+	}
+
+	for(Map<StringName,Variant>::Element *E=member_default_values_cache.front();E;E=E->next()) {
+		values[E->key()]=E->get();
+	}
+
+	for (List<PropertyInfo>::Element *E=members_cache.front();E;E=E->next()) {
+		propnames.push_back(E->get());
+	}
+
+}
+#endif
+
+bool GDScript::_update_exports() {
+
+#ifdef TOOLS_ENABLED
+
+	bool changed=false;
+
+	if (source_changed_cache) {
+		//print_line("updating source for "+get_path());
+		source_changed_cache=false;
+		changed=true;
+
+		String basedir=path;
+
+		if (basedir=="")
+			basedir=get_path();
+
+		if (basedir!="")
+			basedir=basedir.get_base_dir();
+
+		GDParser parser;
+		Error err = parser.parse(source,basedir,true,path);
+
+		if (err==OK) {
+
+			const GDParser::Node* root = parser.get_parse_tree();
+			ERR_FAIL_COND_V(root->type!=GDParser::Node::TYPE_CLASS,false);
+
+			const GDParser::ClassNode *c = static_cast<const GDParser::ClassNode*>(root);
+
+			if (base_cache.is_valid()) {
+				base_cache->inheriters_cache.erase(get_instance_ID());
+				base_cache=Ref<GDScript>();
+			}
+
+
+			if (c->extends_used && String(c->extends_file)!="" && String(c->extends_file) != get_path()) {
+
+				String path = c->extends_file;
+				if (path.is_rel_path()) {
+
+					String base = get_path();
+					if (base=="" || base.is_rel_path()) {
+
+						ERR_PRINT(("Could not resolve relative path for parent class: "+path).utf8().get_data());
+					} else {
+						path=base.get_base_dir().plus_file(path);
+					}
+				}
+
+				Ref<GDScript> bf = ResourceLoader::load(path);
+
+				if (bf.is_valid()) {
+
+					//print_line("parent is: "+bf->get_path());
+					base_cache=bf;
+					bf->inheriters_cache.insert(get_instance_ID());
+
+					//bf->_update_exports(p_instances,true,false);
+
+				}
+			}
+
+			members_cache.clear();;
+			member_default_values_cache.clear();
+
+			for(int i=0;i<c->variables.size();i++) {
+				if (c->variables[i]._export.type==Variant::NIL)
+					continue;
+
+				members_cache.push_back(c->variables[i]._export);
+				//print_line("found "+c->variables[i]._export.name);
+				member_default_values_cache[c->variables[i].identifier]=c->variables[i].default_value;
+			}
+
+			_signals.clear();
+
+			for(int i=0;i<c->_signals.size();i++) {
+				_signals[c->_signals[i].name]=c->_signals[i].arguments;
+			}
+		}
+	} else {
+		//print_line("unchaged is "+get_path());
+
+	}
+
+	if (base_cache.is_valid()) {
+		if (base_cache->_update_exports()) {
+			changed = true;
+		}
+	}
+
+	if (/*changed &&*/ placeholders.size()) { //hm :(
+
+		//print_line("updating placeholders for "+get_path());
+
+		//update placeholders if any
+		Map<StringName,Variant> values;
+		List<PropertyInfo> propnames;
+		_update_exports_values(values,propnames);
+
+		for (Set<PlaceHolderScriptInstance*>::Element *E=placeholders.front();E;E=E->next()) {
+
+			E->get()->update(propnames,values);
+		}
+	}
+
+	return changed;
+
+#endif
+	return false;
+}
+
+void GDScript::update_exports() {
+
+#ifdef TOOLS_ENABLED
+
+	_update_exports();
+
+	Set<ObjectID> copy=inheriters_cache; //might get modified
+
+	//print_line("update exports for "+get_path()+" ic: "+itos(copy.size()));
+	for(Set<ObjectID>::Element *E=copy.front();E;E=E->next()) {
+		Object *id=ObjectDB::get_instance(E->get());
+		if (!id)
+			continue;
+		GDScript *s=id->cast_to<GDScript>();
+		if (!s)
+			continue;
+		s->update_exports();
+	}
+
+#endif
 }
 
 void GDScript::_set_subclass_path(Ref<GDScript>& p_sc,const String& p_path) {
@@ -1436,9 +1841,10 @@ Error GDScript::reload() {
 
 
 
+
 	valid=false;
 	GDParser parser;
-	Error err = parser.parse(source,basedir);
+	Error err = parser.parse(source,basedir,false,path);
 	if (err) {
 		if (ScriptDebugger::get_singleton()) {
 			GDScriptLanguage::get_singleton()->debug_break_parse(get_path(),parser.get_error_line(),"Parser Error: "+parser.get_error());
@@ -1466,10 +1872,10 @@ Error GDScript::reload() {
 	}
 
 #ifdef TOOLS_ENABLED
-	for (Set<PlaceHolderScriptInstance*>::Element *E=placeholders.front();E;E=E->next()) {
+	/*for (Set<PlaceHolderScriptInstance*>::Element *E=placeholders.front();E;E=E->next()) {
 
 		_update_placeholder(E->get());
-	}
+	}*/
 #endif
 	return OK;
 }
@@ -1571,13 +1977,42 @@ void GDScript::_bind_methods() {
 
 	ObjectTypeDB::bind_native_method(METHOD_FLAGS_DEFAULT,"new",&GDScript::_new,MethodInfo("new"));	
 
+	ObjectTypeDB::bind_method(_MD("get_as_byte_code"),&GDScript::get_as_byte_code);
+
 }
 
+
+Vector<uint8_t> GDScript::get_as_byte_code() const {
+
+	GDTokenizerBuffer tokenizer;
+	return tokenizer.parse_code_string(source);
+};
 
 
 Error GDScript::load_byte_code(const String& p_path) {
 
-	Vector<uint8_t> bytecode = FileAccess::get_file_as_array(p_path);
+	Vector<uint8_t> bytecode;
+
+	if (p_path.ends_with("gde")) {
+
+		FileAccess *fa = FileAccess::open(p_path,FileAccess::READ);
+		ERR_FAIL_COND_V(!fa,ERR_CANT_OPEN);
+		FileAccessEncrypted *fae = memnew( FileAccessEncrypted );
+		ERR_FAIL_COND_V(!fae,ERR_CANT_OPEN);
+		Vector<uint8_t> key;
+		key.resize(32);
+		for(int i=0;i<key.size();i++) {
+			key[i]=script_encryption_key[i];
+		}
+		Error err = fae->open_and_parse(fa,key,FileAccessEncrypted::MODE_READ);
+		ERR_FAIL_COND_V(err,err);
+		bytecode.resize(fae->get_len());
+		fae->get_buffer(bytecode.ptr(),bytecode.size());
+		memdelete(fae);
+	} else {
+
+		bytecode = FileAccess::get_file_as_array(p_path);
+	}
 	ERR_FAIL_COND_V(bytecode.size()==0,ERR_PARSE_ERROR);
 	path=p_path;
 
@@ -1591,7 +2026,7 @@ Error GDScript::load_byte_code(const String& p_path) {
 
 	valid=false;
 	GDParser parser;
-	Error err = parser.parse_bytecode(bytecode,basedir);
+	Error err = parser.parse_bytecode(bytecode,basedir,get_path());
 	if (err) {
 		_err_print_error("GDScript::load_byte_code",path.empty()?"built-in":(const char*)path.utf8().get_data(),parser.get_error_line(),("Parse Error: "+parser.get_error()).utf8().get_data());
 		ERR_FAIL_V(ERR_PARSE_ERROR);
@@ -1644,6 +2079,10 @@ Error GDScript::load_source_code(const String& p_path) {
 	}
 
 	source=s;
+#ifdef TOOLS_ENABLED
+	source_changed_cache=true;
+#endif
+	//print_line("LSC :"+get_path());
 	path=p_path;
 	return OK;
 
@@ -1660,9 +2099,9 @@ const Map<StringName,GDFunction>& GDScript::debug_get_member_functions() const {
 StringName GDScript::debug_get_member_by_index(int p_idx) const {
 
 
-	for(const Map<StringName,int>::Element *E=member_indices.front();E;E=E->next()) {
+	for(const Map<StringName,MemberInfo>::Element *E=member_indices.front();E;E=E->next()) {
 
-		if (E->get()==p_idx)
+		if (E->get().index==p_idx)
 			return E->key();
 	}
 
@@ -1675,15 +2114,61 @@ Ref<GDScript> GDScript::get_base() const {
 	return base;
 }
 
+bool GDScript::has_script_signal(const StringName& p_signal) const {
+	if (_signals.has(p_signal))
+		return true;
+	if (base.is_valid()) {
+		return base->has_script_signal(p_signal);
+	}
+#ifdef TOOLS_ENABLED
+	else if (base_cache.is_valid()){
+		return base_cache->has_script_signal(p_signal);
+	}
+
+#endif
+	return false;
+}
+void GDScript::get_script_signal_list(List<MethodInfo> *r_signals) const {
+
+	for(const Map<StringName,Vector<StringName> >::Element *E=_signals.front();E;E=E->next()) {
+
+		MethodInfo mi;
+		mi.name=E->key();
+		for(int i=0;i<E->get().size();i++) {
+			PropertyInfo arg;
+			arg.name=E->get()[i];
+			mi.arguments.push_back(arg);
+		}
+		r_signals->push_back(mi);
+	}
+
+	if (base.is_valid()) {
+		base->get_script_signal_list(r_signals);
+	}
+#ifdef TOOLS_ENABLED
+	else if (base_cache.is_valid()){
+		base_cache->get_script_signal_list(r_signals);
+	}
+
+#endif
+
+}
+
+
 GDScript::GDScript() {
 
 
+	_static_ref=this;
 	valid=false;
 	subclass_count=0;
 	initializer=NULL;
 	_base=NULL;
 	_owner=NULL;
 	tool=false;
+#ifdef TOOLS_ENABLED
+	source_changed_cache=false;
+#endif
+
 }
 
 
@@ -1699,11 +2184,19 @@ bool GDInstance::set(const StringName& p_name, const Variant& p_value) {
 
 	//member
 	{
-		const Map<StringName,int>::Element *E = script->member_indices.find(p_name);
+		const Map<StringName,GDScript::MemberInfo>::Element *E = script->member_indices.find(p_name);
 		if (E) {
-			members[E->get()]=p_value;
+			if (E->get().setter) {
+				const Variant *val=&p_value;
+				Variant::CallError err;
+				call(E->get().setter,&val,1,err);
+				if (err.error==Variant::CallError::CALL_OK) {
+					return true; //function exists, call was successful
+				}
+			}
+			else
+				members[E->get().index] = p_value;
 			return true;
-
 		}
 	}
 
@@ -1736,9 +2229,16 @@ bool GDInstance::get(const StringName& p_name, Variant &r_ret) const {
 	while(sptr) {
 
 		{
-			const Map<StringName,int>::Element *E = script->member_indices.find(p_name);
+			const Map<StringName,GDScript::MemberInfo>::Element *E = script->member_indices.find(p_name);
 			if (E) {
-				r_ret=members[E->get()];
+				if (E->get().getter) {
+					Variant::CallError err;
+					r_ret=const_cast<GDInstance*>(this)->call(E->get().getter,NULL,0,err);
+					if (err.error==Variant::CallError::CALL_OK) {
+						return true;
+					}
+				}
+				r_ret=members[E->get().index];
 				return true; //index found
 
 			}
@@ -1828,7 +2328,7 @@ void GDInstance::get_property_list(List<PropertyInfo> *p_properties) const {
 
 			_GDScriptMemberSort ms;
 			ERR_CONTINUE(!sptr->member_indices.has(E->key()));
-			ms.index=sptr->member_indices[E->key()];
+			ms.index=sptr->member_indices[E->key()].index;
 			ms.name=E->key();
 			msort.push_back(ms);
 
@@ -2064,9 +2564,9 @@ void GDScriptLanguage::init() {
 
 	//populate native classes
 
-	List<String> class_list;
+	List<StringName> class_list;
 	ObjectTypeDB::get_type_list(&class_list);
-	for(List<String>::Element *E=class_list.front();E;E=E->next()) {
+	for(List<StringName>::Element *E=class_list.front();E;E=E->next()) {
 
 		StringName n = E->get();
 		String s = String(n);
@@ -2130,8 +2630,8 @@ void GDScriptLanguage::get_reserved_words(List<String> *p_words) const  {
 		"func"	,
 		"if"	,
 		"in"	,
-		"varl",
 		"null"	,
+		"not"	,
 		"return"	,
 		"self"	,
 		"while"	,
@@ -2139,10 +2639,17 @@ void GDScriptLanguage::get_reserved_words(List<String> *p_words) const  {
 		"false"	,
 		"tool",
 		"var",
+		"setget",
 		"pass",
 		"and",
 		"or",
 		"export",
+		"assert",
+		"yield",
+		"static",
+		"float",
+		"int",
+		"signal",
 	0};
 
 
@@ -2203,13 +2710,16 @@ GDScriptLanguage::~GDScriptLanguage() {
 
 /*************** RESOURCE ***************/
 
-RES ResourceFormatLoaderGDScript::load(const String &p_path,const String& p_original_path) {
+RES ResourceFormatLoaderGDScript::load(const String &p_path, const String& p_original_path, Error *r_error) {
+
+	if (r_error)
+		*r_error=ERR_FILE_CANT_OPEN;
 
 	GDScript *script = memnew( GDScript );
 
 	Ref<GDScript> scriptres(script);
 
-	if (p_path.ends_with(".gdc")) {
+	if (p_path.ends_with(".gde") || p_path.ends_with(".gdc")) {
 
 		script->set_script_path(p_original_path); // script needs this.
 		script->set_path(p_original_path);
@@ -2235,6 +2745,8 @@ RES ResourceFormatLoaderGDScript::load(const String &p_path,const String& p_orig
 
 		script->reload();
 	}
+	if (r_error)
+		*r_error=OK;
 
 	return scriptres;
 }
@@ -2242,6 +2754,7 @@ void ResourceFormatLoaderGDScript::get_recognized_extensions(List<String> *p_ext
 
 	p_extensions->push_back("gd");
 	p_extensions->push_back("gdc");
+	p_extensions->push_back("gde");
 }
 
 bool ResourceFormatLoaderGDScript::handles_type(const String& p_type) const {
@@ -2252,7 +2765,7 @@ bool ResourceFormatLoaderGDScript::handles_type(const String& p_type) const {
 String ResourceFormatLoaderGDScript::get_resource_type(const String &p_path) const {
 
 	String el = p_path.extension().to_lower();
-	if (el=="gd" || el=="gdc")
+	if (el=="gd" || el=="gdc" || el=="gde")
 		return "GDScript";
 	return "";
 }
@@ -2275,7 +2788,10 @@ Error ResourceFormatSaverGDScript::save(const String &p_path,const RES& p_resour
 	}
 
 	file->store_string(source);
-
+	if (file->get_error()!=OK && file->get_error()!=ERR_FILE_EOF) {
+		memdelete(file);
+		return ERR_CANT_CREATE;
+	}
 	file->close();
 	memdelete(file);
 	return OK;

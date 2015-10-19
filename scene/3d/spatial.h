@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -45,6 +45,7 @@ public:
 
 	virtual void create()=0;
 	virtual void transform()=0;
+	virtual void clear()=0;
 	virtual void redraw()=0;
 	virtual void free()=0;
 
@@ -90,11 +91,15 @@ class Spatial : public Node {
 		List<Spatial*>::Element *C;
 		
 		bool ignore_notification;
+		bool notify_local_transform;
+
+		bool visible;
 
 #ifdef TOOLS_ENABLED
 		Ref<SpatialGizmo> gizmo;
 		bool gizmo_disabled;
 		bool gizmo_dirty;
+		Transform import_transform;
 #endif
 
 	} data;
@@ -108,6 +113,8 @@ class Spatial : public Node {
 	void _set_rotation_deg(const Vector3& p_deg);
 	Vector3 _get_rotation_deg() const;
 
+	void _propagate_visibility_changed();
+
 
 protected:
 
@@ -117,14 +124,18 @@ protected:
 
 	void _notification(int p_what);
 	static void _bind_methods();
-	
+
+	void _set_visible_(bool p_visible);
+	bool _is_visible_() const;
 public:
 
 	enum {
 	
-		NOTIFICATION_TRANSFORM_CHANGED=SceneMainLoop::NOTIFICATION_TRANSFORM_CHANGED,
+		NOTIFICATION_TRANSFORM_CHANGED=SceneTree::NOTIFICATION_TRANSFORM_CHANGED,
 		NOTIFICATION_ENTER_WORLD=41,
 		NOTIFICATION_EXIT_WORLD=42,
+		NOTIFICATION_VISIBILITY_CHANGED=43,
+		NOTIFICATION_LOCAL_TRANSFORM_CHANGED=44,
 	};
 
 	Spatial *get_parent_spatial() const;
@@ -157,6 +168,34 @@ public:
 	_FORCE_INLINE_ bool is_inside_world() const { return data.inside_world; }
 
 	Transform get_relative_transform(const Node *p_parent) const;
+
+	void rotate(const Vector3& p_normal,float p_radians);
+	void rotate_x(float p_radians);
+	void rotate_y(float p_radians);
+	void rotate_z(float p_radians);
+	void translate(const Vector3& p_offset);
+	void scale(const Vector3& p_ratio);
+	void global_rotate(const Vector3& p_normal,float p_radians);
+	void global_translate(const Vector3& p_offset);
+
+	void look_at(const Vector3& p_target, const Vector3& p_up_normal);
+	void look_at_from_pos(const Vector3& p_pos,const Vector3& p_target, const Vector3& p_up_normal);
+
+	void set_notify_local_transform(bool p_enable);
+	bool is_local_transform_notification_enabled() const;
+
+	void orthonormalize();
+	void set_identity();
+
+	void show();
+	void hide();
+	bool is_visible() const;
+	bool is_hidden() const;
+
+#ifdef TOOLS_ENABLED
+	void set_import_transform(const Transform& p_transform)	;
+	Transform get_import_transform() const;
+#endif
 
 	Spatial();	
 	~Spatial();

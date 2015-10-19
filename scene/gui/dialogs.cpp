@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -93,7 +93,7 @@ void WindowDialog::_notification(int p_what) {
 
 		} break;
 		case NOTIFICATION_THEME_CHANGED:
-		case NOTIFICATION_ENTER_SCENE: {
+		case NOTIFICATION_ENTER_TREE: {
 
 			close_button->set_normal_texture( get_icon("close","WindowDialog"));
 			close_button->set_pressed_texture( get_icon("close","WindowDialog"));
@@ -274,7 +274,7 @@ Button* AcceptDialog::add_button(const String& p_text,bool p_right,const String&
 	}
 
 	if (p_action!="") {
-		button->connect("pressed",this,"_custom_action",make_binds(p_action));
+		button->connect("pressed",this,"_custom_action",varray(p_action));
 	}
 
 	return button;
@@ -297,7 +297,7 @@ void AcceptDialog::_bind_methods() {
 	ObjectTypeDB::bind_method(_MD("get_label"),&AcceptDialog::get_label);
 	ObjectTypeDB::bind_method(_MD("set_hide_on_ok","enabled"),&AcceptDialog::set_hide_on_ok);
 	ObjectTypeDB::bind_method(_MD("get_hide_on_ok"),&AcceptDialog::get_hide_on_ok);
-	ObjectTypeDB::bind_method(_MD("add_button:Button","text","right","action"),&AcceptDialog::add_cancel,DEFVAL(false),DEFVAL(""));
+	ObjectTypeDB::bind_method(_MD("add_button:Button","text","right","action"),&AcceptDialog::add_button,DEFVAL(false),DEFVAL(""));
 	ObjectTypeDB::bind_method(_MD("add_cancel:Button","name"),&AcceptDialog::add_cancel);
 	ObjectTypeDB::bind_method(_MD("_builtin_text_entered"),&AcceptDialog::_builtin_text_entered);
 	ObjectTypeDB::bind_method(_MD("register_text_enter:LineEdit","line_edit"),&AcceptDialog::register_text_enter);
@@ -328,8 +328,8 @@ AcceptDialog::AcceptDialog() {
 	label->set_anchor(MARGIN_RIGHT,ANCHOR_END);
 	label->set_anchor(MARGIN_BOTTOM,ANCHOR_END);
 	label->set_begin( Point2( margin, margin) );
-	label->set_end( Point2( margin, button_margin) );
-	label->set_autowrap(true);
+	label->set_end( Point2( margin, button_margin+10) );
+	//label->set_autowrap(true);
 	add_child(label);
 
 	hbc = memnew( HBoxContainer );

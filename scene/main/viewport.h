@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -104,15 +104,32 @@ friend class RenderTargetTexture;
 	Rect2 rect;
 	Rect2 to_screen_rect;
 
+	RID contact_2d_debug;
+	RID contact_3d_debug_multimesh;
+	RID contact_3d_debug_instance;
+
+
 
 	bool size_override;
 	bool size_override_stretch;
 	Size2 size_override_size;
 	Size2 size_override_margin;
 
+	Rect2 last_vp_rect;
 
 	bool transparent_bg;
 	bool render_target_vflip;
+	bool render_target_clear_on_new_frame;
+	bool render_target_filter;
+	bool render_target_gen_mipmaps;
+
+	bool physics_object_picking;
+	List<InputEvent> physics_picking_events;
+	ObjectID physics_object_capture;
+	ObjectID physics_object_over;
+	Vector2 physics_last_mousepos;
+	void _test_new_mouseover(ObjectID new_collider);
+	Map<ObjectID,uint64_t> physics_2d_mouseover;
 
 	void _update_rect();
 
@@ -149,8 +166,8 @@ friend class RenderTargetTexture;
 
 	_FORCE_INLINE_ Matrix32 _get_input_pre_xform() const;
 
-	void _vp_enter_scene();
-	void _vp_exit_scene();
+	void _vp_enter_tree();
+	void _vp_exit_tree();
 
 	void _vp_input(const InputEvent& p_ev);
 	void _vp_unhandled_input(const InputEvent& p_ev);
@@ -210,9 +227,23 @@ public:
 	void set_render_target_vflip(bool p_enable);
 	bool get_render_target_vflip() const;
 
+	void set_render_target_clear_on_new_frame(bool p_enable);
+	bool get_render_target_clear_on_new_frame() const;
+	void render_target_clear();
+
+	void set_render_target_filter(bool p_enable);
+	bool get_render_target_filter() const;
+
+	void set_render_target_gen_mipmaps(bool p_enable);
+	bool get_render_target_gen_mipmaps() const;
+
 	void set_render_target_update_mode(RenderTargetUpdateMode p_mode);
 	RenderTargetUpdateMode get_render_target_update_mode() const;
 	Ref<RenderTargetTexture> get_render_target_texture() const;
+
+
+	Vector2 get_camera_coords(const Vector2& p_viewport_coords) const;
+	Vector2 get_camera_rect_size() const;
 
 	void queue_screen_capture();
 	Image get_screen_capture() const;
@@ -225,6 +256,12 @@ public:
 
 	void set_render_target_to_screen_rect(const Rect2& p_rect);
 	Rect2 get_render_target_to_screen_rect() const;
+
+	Vector2 get_mouse_pos() const;
+	void warp_mouse(const Vector2& p_pos);
+
+	void set_physics_object_picking(bool p_enable);
+	bool get_physics_object_picking();
 
 	Viewport();	
 	~Viewport();

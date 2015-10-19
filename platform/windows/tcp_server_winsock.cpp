@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -79,6 +79,13 @@ Error TCPServerWinsock::listen(uint16_t p_port,const List<String> *p_accepted_ho
 	my_addr.sin_addr.s_addr = INADDR_ANY; // automatically fill with my IP TODO: use p_accepted_hosts
 	memset(my_addr.sin_zero, '\0', sizeof my_addr.sin_zero);
 
+	int reuse=1;
+	if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char *)&reuse, sizeof(reuse)) < 0) {
+
+		printf("REUSEADDR failed!");
+	}
+
+
 	if (bind(sockfd, (struct sockaddr *)&my_addr, sizeof my_addr) != SOCKET_ERROR) {
 
 		if (::listen(sockfd, SOMAXCONN) == SOCKET_ERROR) {
@@ -86,6 +93,9 @@ Error TCPServerWinsock::listen(uint16_t p_port,const List<String> *p_accepted_ho
 			closesocket(sockfd);
 			ERR_FAIL_V(FAILED);
 		};
+	}
+	else {
+		return ERR_ALREADY_IN_USE;
 	};
 
 	if (listen_sockfd != INVALID_SOCKET) {

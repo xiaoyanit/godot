@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -40,7 +40,9 @@ static const char* _light_param_names[VS::LIGHT_PARAM_MAX]={
 	"params/attenuation",
 	"shadow/darkening",
 	"shadow/z_offset",
-	"shadow/z_slope_scale"
+	"shadow/z_slope_scale",
+	"shadow/esm_multiplier",
+	"shadow/blur_passes"
 };
 
 void Light::set_parameter(Parameter p_param, float p_value) {
@@ -163,7 +165,7 @@ RES Light::_get_gizmo_geometry() const {
 	mat_area->set_parameter( FixedMaterial::PARAM_EMISSION,Color(0.7,0.7,0.7) );
 	mat_area->set_blend_mode( Material::BLEND_MODE_ADD );
 	mat_area->set_flag(Material::FLAG_DOUBLE_SIDED,true);
-	mat_area->set_hint(Material::HINT_NO_DEPTH_DRAW,true);
+//	mat_area->set_hint(Material::HINT_NO_DEPTH_DRAW,true);
 
 	Ref<FixedMaterial> mat_light( memnew( FixedMaterial ));
 
@@ -351,6 +353,17 @@ void Light::set_operator(Operator p_op) {
 
 }
 
+void Light::set_bake_mode(BakeMode p_bake_mode) {
+
+	bake_mode=p_bake_mode;
+}
+
+Light::BakeMode Light::get_bake_mode() const {
+
+	return bake_mode;
+}
+
+
 Light::Operator Light::get_operator() const {
 
 	return op;
@@ -402,11 +415,11 @@ void Light::approximate_opengl_attenuation(float p_constant, float p_linear, flo
 
 	float energy=1.0;
 
-	if (p_constant>0)
+	/*if (p_constant>0)
 		energy=1.0/p_constant; //energy is this
 	else
 		energy=8.0; // some high number..
-
+*/
 
 	if (radius==10000)
 		radius=100; //bug?
@@ -415,6 +428,61 @@ void Light::approximate_opengl_attenuation(float p_constant, float p_linear, flo
 	set_parameter(PARAM_ENERGY,energy);
 
 }
+
+
+void Light::_update_visibility() {
+
+	if (!is_inside_tree())
+		return;
+
+
+bool editor_ok=true;
+
+#ifdef TOOLS_ENABLED
+	if (editor_only) {
+		if (!get_tree()->is_editor_hint()) {
+			editor_ok=false;
+		} else {
+			editor_ok = (get_tree()->get_edited_scene_root() && (this==get_tree()->get_edited_scene_root() || get_owner()==get_tree()->get_edited_scene_root()));
+		}
+	}
+#endif
+
+	VS::get_singleton()->instance_light_set_enabled(get_instance(),is_visible() && enabled && editor_ok);
+	_change_notify("geometry/visible");
+
+}
+
+
+void Light::_notification(int p_what) {
+
+	if (p_what==NOTIFICATION_ENTER_TREE || p_what==NOTIFICATION_VISIBILITY_CHANGED) {
+		_update_visibility();
+	}
+}
+
+void Light::set_enabled(bool p_enabled) {
+
+	enabled=p_enabled;
+	_update_visibility();
+}
+
+bool Light::is_enabled() const{
+
+	return enabled;
+}
+
+void Light::set_editor_only(bool p_editor_only) {
+
+	editor_only=p_editor_only;
+	_update_visibility();
+}
+
+bool Light::is_editor_only() const{
+
+	return editor_only;
+}
+
 
 void Light::_bind_methods() {
 
@@ -428,8 +496,17 @@ void Light::_bind_methods() {
 	ObjectTypeDB::bind_method(_MD("get_projector:Texture"), &Light::get_projector );
 	ObjectTypeDB::bind_method(_MD("set_operator","operator"), &Light::set_operator );
 	ObjectTypeDB::bind_method(_MD("get_operator"), &Light::get_operator );
+	ObjectTypeDB::bind_method(_MD("set_bake_mode","bake_mode"), &Light::set_bake_mode );
+	ObjectTypeDB::bind_method(_MD("get_bake_mode"), &Light::get_bake_mode );
+	ObjectTypeDB::bind_method(_MD("set_enabled","enabled"), &Light::set_enabled );
+	ObjectTypeDB::bind_method(_MD("is_enabled"), &Light::is_enabled );
+	ObjectTypeDB::bind_method(_MD("set_editor_only","editor_only"), &Light::set_editor_only );
+	ObjectTypeDB::bind_method(_MD("is_editor_only"), &Light::is_editor_only );
 
 
+	ADD_PROPERTY( PropertyInfo( Variant::BOOL, "params/enabled"), _SCS("set_enabled"), _SCS("is_enabled"));
+	ADD_PROPERTY( PropertyInfo( Variant::BOOL, "params/editor_only"), _SCS("set_editor_only"), _SCS("is_editor_only"));
+	ADD_PROPERTY( PropertyInfo( Variant::INT, "params/bake_mode",PROPERTY_HINT_ENUM,"Disabled,Indirect,Indirect+Shadows,Full"), _SCS("set_bake_mode"), _SCS("get_bake_mode"));
 	ADD_PROPERTYI( PropertyInfo( Variant::REAL, "params/energy", PROPERTY_HINT_EXP_RANGE, "0,64,0.01"), _SCS("set_parameter"), _SCS("get_parameter"), PARAM_ENERGY );
 	/*
 	if (type == VisualServer::LIGHT_OMNI || type == VisualServer::LIGHT_SPOT) {
@@ -443,13 +520,14 @@ void Light::_bind_methods() {
 
 	}*/
 
-	ADD_PROPERTYI( PropertyInfo( Variant::COLOR, "colors/ambient"), _SCS("set_color"), _SCS("get_color"),COLOR_AMBIENT);
 	ADD_PROPERTYI( PropertyInfo( Variant::COLOR, "colors/diffuse"), _SCS("set_color"), _SCS("get_color"),COLOR_DIFFUSE);
 	ADD_PROPERTYI( PropertyInfo( Variant::COLOR, "colors/specular"), _SCS("set_color"), _SCS("get_color"),COLOR_SPECULAR);
 	ADD_PROPERTY( PropertyInfo( Variant::BOOL, "shadow/shadow"), _SCS("set_project_shadows"), _SCS("has_project_shadows"));
-	ADD_PROPERTYI( PropertyInfo( Variant::REAL, "shadow/darkening", PROPERTY_HINT_RANGE, "0,64,0.01"), _SCS("set_parameter"), _SCS("get_parameter"), PARAM_SHADOW_DARKENING );
+	ADD_PROPERTYI( PropertyInfo( Variant::REAL, "shadow/darkening", PROPERTY_HINT_RANGE, "0,1,0.01"), _SCS("set_parameter"), _SCS("get_parameter"), PARAM_SHADOW_DARKENING );
 	ADD_PROPERTYI( PropertyInfo( Variant::REAL, "shadow/z_offset", PROPERTY_HINT_RANGE, "0,128,0.001"), _SCS("set_parameter"), _SCS("get_parameter"), PARAM_SHADOW_Z_OFFSET);
 	ADD_PROPERTYI( PropertyInfo( Variant::REAL, "shadow/z_slope_scale", PROPERTY_HINT_RANGE, "0,128,0.001"), _SCS("set_parameter"), _SCS("get_parameter"), PARAM_SHADOW_Z_SLOPE_SCALE);
+	ADD_PROPERTYI( PropertyInfo( Variant::REAL, "shadow/esm_multiplier", PROPERTY_HINT_RANGE, "1.0,512.0,0.1"), _SCS("set_parameter"), _SCS("get_parameter"), PARAM_SHADOW_ESM_MULTIPLIER);
+	ADD_PROPERTYI( PropertyInfo( Variant::INT, "shadow/blur_passes", PROPERTY_HINT_RANGE, "0,4,1"), _SCS("set_parameter"), _SCS("get_parameter"), PARAM_SHADOW_BLUR_PASSES);
 	ADD_PROPERTY( PropertyInfo( Variant::OBJECT, "projector",PROPERTY_HINT_RESOURCE_TYPE,"Texture"), _SCS("set_projector"), _SCS("get_projector"));
 	ADD_PROPERTY( PropertyInfo( Variant::INT, "operator",PROPERTY_HINT_ENUM,"Add,Sub"), _SCS("set_operator"), _SCS("get_operator"));
 
@@ -462,9 +540,15 @@ void Light::_bind_methods() {
 	BIND_CONSTANT( PARAM_SHADOW_DARKENING );
 	BIND_CONSTANT( PARAM_SHADOW_Z_OFFSET );
 
-	BIND_CONSTANT( COLOR_AMBIENT );
+
 	BIND_CONSTANT( COLOR_DIFFUSE );
 	BIND_CONSTANT( COLOR_SPECULAR );	
+
+	BIND_CONSTANT( BAKE_MODE_DISABLED );
+	BIND_CONSTANT( BAKE_MODE_INDIRECT );
+	BIND_CONSTANT( BAKE_MODE_INDIRECT_AND_SHADOWS );
+	BIND_CONSTANT( BAKE_MODE_FULL );
+
 
 }
 
@@ -482,14 +566,19 @@ Light::Light(VisualServer::LightType p_type) {
 	set_parameter(PARAM_SHADOW_DARKENING,0.0);
 	set_parameter(PARAM_SHADOW_Z_OFFSET,0.05);
 	set_parameter(PARAM_SHADOW_Z_SLOPE_SCALE,0);
+	set_parameter(PARAM_SHADOW_ESM_MULTIPLIER,60);
+	set_parameter(PARAM_SHADOW_BLUR_PASSES,1);
 
-	set_color( COLOR_AMBIENT, Color(0,0,0));
+
 	set_color( COLOR_DIFFUSE, Color(1,1,1));
 	set_color( COLOR_SPECULAR, Color(1,1,1));
 
 	op=OPERATOR_ADD;
 	set_project_shadows( false );
 	set_base(light);
+	enabled=true;
+	editor_only=false;
+	bake_mode=BAKE_MODE_DISABLED;
 
 }
 
@@ -540,14 +629,15 @@ void DirectionalLight::_bind_methods() {
 	ObjectTypeDB::bind_method(_MD("set_shadow_param","param","value"),&DirectionalLight::set_shadow_param);
 	ObjectTypeDB::bind_method(_MD("get_shadow_param","param"),&DirectionalLight::get_shadow_param);
 
-	ADD_PROPERTY( PropertyInfo(Variant::INT,"shadow/mode",PROPERTY_HINT_ENUM,"Orthogonal,Perspective,PSSM"),_SCS("set_shadow_mode"),_SCS("get_shadow_mode"));
+	ADD_PROPERTY( PropertyInfo(Variant::INT,"shadow/mode",PROPERTY_HINT_ENUM,"Orthogonal,Perspective,PSSM 2 Splits,PSSM 4 Splits"),_SCS("set_shadow_mode"),_SCS("get_shadow_mode"));
 	ADD_PROPERTYI( PropertyInfo(Variant::REAL,"shadow/max_distance",PROPERTY_HINT_EXP_RANGE,"0.00,99999,0.01"),_SCS("set_shadow_param"),_SCS("get_shadow_param"), SHADOW_PARAM_MAX_DISTANCE);
 	ADD_PROPERTYI( PropertyInfo(Variant::REAL,"shadow/split_weight",PROPERTY_HINT_RANGE,"0.01,1.0,0.01"),_SCS("set_shadow_param"),_SCS("get_shadow_param"), SHADOW_PARAM_PSSM_SPLIT_WEIGHT);
 	ADD_PROPERTYI( PropertyInfo(Variant::REAL,"shadow/zoffset_scale",PROPERTY_HINT_RANGE,"0.01,1024.0,0.01"),_SCS("set_shadow_param"),_SCS("get_shadow_param"), SHADOW_PARAM_PSSM_ZOFFSET_SCALE);
 
 	BIND_CONSTANT( SHADOW_ORTHOGONAL );
 	BIND_CONSTANT( SHADOW_PERSPECTIVE );
-	BIND_CONSTANT( SHADOW_PARALLEL_SPLIT );
+	BIND_CONSTANT( SHADOW_PARALLEL_2_SPLITS );
+	BIND_CONSTANT( SHADOW_PARALLEL_4_SPLITS );
 	BIND_CONSTANT( SHADOW_PARAM_MAX_DISTANCE );
 	BIND_CONSTANT( SHADOW_PARAM_PSSM_SPLIT_WEIGHT );
 	BIND_CONSTANT( SHADOW_PARAM_PSSM_ZOFFSET_SCALE );
@@ -561,6 +651,7 @@ DirectionalLight::DirectionalLight() : Light( VisualServer::LIGHT_DIRECTIONAL ) 
 	shadow_param[SHADOW_PARAM_MAX_DISTANCE]=0;
 	shadow_param[SHADOW_PARAM_PSSM_SPLIT_WEIGHT]=0.5;
 	shadow_param[SHADOW_PARAM_PSSM_ZOFFSET_SCALE]=2.0;
+
 
 }
 
@@ -578,7 +669,7 @@ void SpotLight::_bind_methods() {
 	ADD_PROPERTYI( PropertyInfo( Variant::REAL, "params/attenuation", PROPERTY_HINT_EXP_EASING, "attenuation"), _SCS("set_parameter"), _SCS("get_parameter"), PARAM_ATTENUATION );
 
 	ADD_PROPERTYI( PropertyInfo( Variant::REAL, "params/spot_angle", PROPERTY_HINT_RANGE, "0.01,89.9,0.01"), _SCS("set_parameter"), _SCS("get_parameter"), PARAM_SPOT_ANGLE );
-	ADD_PROPERTYI( PropertyInfo( Variant::REAL, "params/spot_attenuation", PROPERTY_HINT_EXP_EASING, "attenuation"), _SCS("set_parameter"), _SCS("get_parameter"), PARAM_ATTENUATION );
+	ADD_PROPERTYI( PropertyInfo( Variant::REAL, "params/spot_attenuation", PROPERTY_HINT_EXP_EASING, "spot_attenuation"), _SCS("set_parameter"), _SCS("get_parameter"), PARAM_SPOT_ATTENUATION );
 
 }
 

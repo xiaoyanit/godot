@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,8 +31,10 @@
 #include "scene/resources/surface_tool.h"
 #include "message_queue.h"
 #include "scene/3d/light.h"
+#include "scene/3d/baked_light_instance.h"
 #include "io/marshalls.h"
-
+#include "scene/scene_string_names.h"
+#include "os/os.h"
 
 bool GridMap::_set(const StringName& p_name, const Variant& p_value) {
 
@@ -53,6 +55,8 @@ bool GridMap::_set(const StringName& p_name, const Variant& p_value) {
 		set_center_z(p_value);
 	} else if (name=="cell/scale") {
 		set_cell_scale(p_value);
+	} else if (name=="lighting/bake") {
+		set_use_baked_light(p_value);
 	} else if (name=="theme/bake") {
 		set_bake(p_value);
 /*	} else if (name=="cells") {
@@ -118,15 +122,16 @@ bool GridMap::_set(const StringName& p_name, const Variant& p_value) {
 				Octant &g = *octant_map[ok];
 
 				g.baked=b;
-				g.bake_instance=VS::get_singleton()->instance_create();;
+				g.bake_instance=VS::get_singleton()->instance_create();;				
 				VS::get_singleton()->instance_set_base(g.bake_instance,g.baked->get_rid());
+				VS::get_singleton()->instance_geometry_set_baked_light(g.bake_instance,baked_light_instance?baked_light_instance->get_baked_light_instance():RID());
 			}
 		}
 
 
 	} else if (name.begins_with("areas/")) {
-		int which = name.get_slice("/",1).to_int();
-		String what=name.get_slice("/",2);
+		int which = name.get_slicec('/',1).to_int();
+		String what=name.get_slicec('/',2);
 		if (what=="bounds") {
 			ERR_FAIL_COND_V(area_map.has(which),false);
 			create_area(which,p_value);
@@ -169,6 +174,8 @@ bool GridMap::_get(const StringName& p_name,Variant &r_ret) const {
 		r_ret= get_center_z();
 	} else if (name=="cell/scale") {
 		r_ret= cell_scale;
+	} else if (name=="lighting/bake") {
+		r_ret=is_using_baked_light();
 	} else if (name=="theme/bake") {
 		r_ret= bake;
 	} else if (name=="data") {
@@ -208,8 +215,8 @@ bool GridMap::_get(const StringName& p_name,Variant &r_ret) const {
 
 		r_ret= d;
 	} else if (name.begins_with("areas/")) {
-		int which = name.get_slice("/",1).to_int();
-		String what=name.get_slice("/",2);
+		int which = name.get_slicec('/',1).to_int();
+		String what=name.get_slicec('/',2);
 		if (what=="bounds")
 			r_ret= area_get_bounds(which);
 		else if (what=="name")
@@ -231,6 +238,7 @@ void GridMap::_get_property_list( List<PropertyInfo> *p_list) const {
 
 	p_list->push_back( PropertyInfo( Variant::OBJECT, "theme/theme", PROPERTY_HINT_RESOURCE_TYPE, "MeshLibrary"));
 	p_list->push_back( PropertyInfo( Variant::BOOL, "theme/bake"));
+	p_list->push_back( PropertyInfo( Variant::BOOL, "lighting/bake"));
 	p_list->push_back( PropertyInfo( Variant::REAL, "cell/size",PROPERTY_HINT_RANGE,"0.01,16384,0.01") );
 	p_list->push_back( PropertyInfo( Variant::INT, "cell/octant_size",PROPERTY_HINT_RANGE,"1,1024,1") );
 	p_list->push_back( PropertyInfo( Variant::BOOL, "cell/center_x") );
@@ -385,8 +393,12 @@ void GridMap::set_cell_item(int p_x,int p_y,int p_z, int p_item,int p_rot){
 		if (g.items.empty()) {
 
 			PhysicsServer::get_singleton()->free(g.static_body);
+			if (g.collision_debug.is_valid()) {
+				PhysicsServer::get_singleton()->free(g.collision_debug);
+				PhysicsServer::get_singleton()->free(g.collision_debug_instance);
+			}
 
-			memdelete(&g);
+			memdelete(&g);			
 			octant_map.erase(octantkey);
 		} else {
 
@@ -410,8 +422,23 @@ void GridMap::set_cell_item(int p_x,int p_y,int p_z, int p_item,int p_rot){
 		Octant *g = memnew( Octant );
 		g->dirty=true;
 		g->static_body = PhysicsServer::get_singleton()->body_create(PhysicsServer::BODY_MODE_STATIC);
+		PhysicsServer::get_singleton()->body_attach_object_instance_ID(g->static_body,get_instance_ID());
 		if (is_inside_world())
 			PhysicsServer::get_singleton()->body_set_space(g->static_body,get_world()->get_space());
+
+		SceneTree *st=SceneTree::get_singleton();
+
+		if (st && st->is_debugging_collisions_hint()) {
+
+			g->collision_debug=VisualServer::get_singleton()->mesh_create();
+			g->collision_debug_instance=VisualServer::get_singleton()->instance_create();
+			VisualServer::get_singleton()->instance_set_base(g->collision_debug_instance,g->collision_debug);
+			if (is_inside_world()) {
+				VisualServer::get_singleton()->instance_set_scenario(g->collision_debug_instance,get_world()->get_scenario());
+				VisualServer::get_singleton()->instance_set_transform(g->collision_debug_instance,get_global_transform());
+			}
+
+		}
 
 		octant_map[octantkey]=g;
 	}
@@ -428,6 +455,8 @@ void GridMap::set_cell_item(int p_x,int p_y,int p_z, int p_item,int p_rot){
 		ii.multimesh->set_mesh(ii.mesh);
 		ii.multimesh_instance = VS::get_singleton()->instance_create();
 		VS::get_singleton()->instance_set_base(ii.multimesh_instance,ii.multimesh->get_rid());
+		VS::get_singleton()->instance_geometry_set_baked_light(ii.multimesh_instance,baked_light_instance?baked_light_instance->get_baked_light_instance():RID());
+
 		if (!baked_lock) {
 
 			//unbake just in case
@@ -501,6 +530,13 @@ void GridMap::_octant_enter_world(const OctantKey &p_key) {
 	//print_line("BODYPOS: "+get_global_transform());
 
 
+	if (g.collision_debug_instance.is_valid()) {
+		VS::get_singleton()->instance_set_scenario(g.collision_debug_instance,get_world()->get_scenario());
+		VS::get_singleton()->instance_set_transform(g.collision_debug_instance,get_global_transform());
+		if (area_map.has(p_key.area)) {
+			VS::get_singleton()->instance_set_room(g.collision_debug_instance,area_map[p_key.area]->instance);
+		}
+	}
 	if (g.baked.is_valid()) {
 
 		Transform xf = get_global_transform();
@@ -534,6 +570,10 @@ void GridMap::_octant_transform(const OctantKey &p_key) {
 	Octant&g = *octant_map[p_key];
 	PhysicsServer::get_singleton()->body_set_state(g.static_body,PhysicsServer::BODY_STATE_TRANSFORM,get_global_transform());
 
+	if (g.collision_debug_instance.is_valid()) {
+		VS::get_singleton()->instance_set_transform(g.collision_debug_instance,get_global_transform());
+	}
+
 	if (g.baked.is_valid()) {
 
 		Transform xf = get_global_transform();
@@ -560,6 +600,13 @@ void GridMap::_octant_update(const OctantKey &p_key) {
 	Ref<Mesh> mesh;
 
 	PhysicsServer::get_singleton()->body_clear_shapes(g.static_body);
+
+	if (g.collision_debug.is_valid()) {
+
+		VS::get_singleton()->mesh_clear(g.collision_debug);
+	}
+
+	DVector<Vector3> col_debug;
 
 	for(Map<int,Octant::ItemInstances>::Element *E=g.items.front();E;E=E->next()) {
 
@@ -598,6 +645,7 @@ void GridMap::_octant_update(const OctantKey &p_key) {
 			xform.basis.scale(Vector3(cell_scale,cell_scale,cell_scale));
 
 			ii.multimesh->set_instance_transform(idx,xform);
+			//ii.multimesh->set_instance_transform(idx,Transform()	);
 			ii.multimesh->set_instance_color(idx,Color(1,1,1,1));
 			//print_line("MMINST: "+xform);
 
@@ -613,8 +661,11 @@ void GridMap::_octant_update(const OctantKey &p_key) {
 			if (ii.shape.is_valid()) {
 
 				PhysicsServer::get_singleton()->body_add_shape(g.static_body,ii.shape->get_rid(),xform);
-			//	print_line("PHIS x: "+xform);
+				if (g.collision_debug.is_valid()) {
+					ii.shape->add_vertices_to_array(col_debug,xform);
+				}
 
+			//	print_line("PHIS x: "+xform);
 			}
 
 			idx++;
@@ -623,6 +674,20 @@ void GridMap::_octant_update(const OctantKey &p_key) {
 		ii.multimesh->set_aabb(aabb);
 
 
+	}
+
+	if (col_debug.size()) {
+
+
+		Array arr;
+		arr.resize(VS::ARRAY_MAX);
+		arr[VS::ARRAY_VERTEX]=col_debug;
+
+		VS::get_singleton()->mesh_add_surface(g.collision_debug,VS::PRIMITIVE_LINES,arr);
+		SceneTree *st=SceneTree::get_singleton();
+		if (st) {
+			VS::get_singleton()->mesh_surface_set_material( g.collision_debug, 0,st->get_debug_collision_material()->get_rid() );
+		}
 	}
 
 	g.dirty=false;
@@ -643,6 +708,12 @@ void GridMap::_octant_exit_world(const OctantKey &p_key) {
 		VS::get_singleton()->instance_set_room(g.bake_instance,RID());
 		VS::get_singleton()->instance_set_scenario(g.bake_instance,RID());
 
+	}
+
+	if (g.collision_debug_instance.is_valid()) {
+
+		VS::get_singleton()->instance_set_room(g.collision_debug_instance,RID());
+		VS::get_singleton()->instance_set_scenario(g.collision_debug_instance,RID());
 	}
 
 	for(Map<int,Octant::ItemInstances>::Element *E=g.items.front();E;E=E->next()) {
@@ -667,7 +738,7 @@ void GridMap::_octant_clear_baked(const OctantKey &p_key) {
 	g.bake_instance=RID();
 	g.baked=Ref<Mesh>();
 
-	if (is_inside_scene())
+	if (is_inside_tree())
 		_octant_enter_world(p_key);
 	g.dirty=true;
 	_queue_dirty_map();
@@ -863,6 +934,12 @@ void GridMap::_notification(int p_what) {
 			awaiting_update=false;
 
 			last_transform=get_global_transform();
+
+			if (use_baked_light) {
+
+				_find_baked_light();
+			}
+
 		} break;
 		case NOTIFICATION_TRANSFORM_CHANGED: {
 
@@ -882,6 +959,17 @@ void GridMap::_notification(int p_what) {
 			for(Map<OctantKey,Octant*>::Element *E=octant_map.front();E;E=E->next()) {
 				_octant_exit_world(E->key());
 			}
+
+			if (use_baked_light) {
+
+				if (baked_light_instance) {
+					baked_light_instance->disconnect(SceneStringNames::get_singleton()->baked_light_changed,this,SceneStringNames::get_singleton()->_baked_light_changed);
+					baked_light_instance=NULL;
+				}
+				_baked_light_changed();
+
+			}
+
 
 			//_queue_dirty_map(MAP_DIRTY_INSTANCES|MAP_DIRTY_TRANSFORMS);
 			//_update_dirty_map_callback();
@@ -930,6 +1018,11 @@ void GridMap::_clear_internal(bool p_keep_areas) {
 		//unbake just in case
 		if (E->get()->bake_instance.is_valid())
 			VS::get_singleton()->free(E->get()->bake_instance);
+
+		if (E->get()->collision_debug.is_valid())
+			VS::get_singleton()->free(E->get()->collision_debug);
+		if (E->get()->collision_debug_instance.is_valid())
+			VS::get_singleton()->free(E->get()->collision_debug_instance);
 
 		PhysicsServer::get_singleton()->free(E->get()->static_body);
 		memdelete(E->get());
@@ -1014,7 +1107,7 @@ void GridMap::_bind_methods() {
 
 	ObjectTypeDB::bind_method(_MD("set_clip","enabled","clipabove","floor","axis"),&GridMap::set_clip,DEFVAL(true),DEFVAL(0),DEFVAL(Vector3::AXIS_X));
 
-	ObjectTypeDB::bind_method(_MD("crate_area","id","area"),&GridMap::create_area);
+	ObjectTypeDB::bind_method(_MD("create_area","id","area"),&GridMap::create_area);
 	ObjectTypeDB::bind_method(_MD("area_get_bounds","area","bounds"),&GridMap::area_get_bounds);
 	ObjectTypeDB::bind_method(_MD("area_set_exterior_portal","area","enable"),&GridMap::area_set_exterior_portal);
 	ObjectTypeDB::bind_method(_MD("area_set_name","area","name"),&GridMap::area_set_name);
@@ -1027,6 +1120,14 @@ void GridMap::_bind_methods() {
 	ObjectTypeDB::bind_method(_MD("erase_area","area"),&GridMap::erase_area);
 	ObjectTypeDB::bind_method(_MD("get_unused_area_id","area"),&GridMap::get_unused_area_id);
 	ObjectTypeDB::bind_method(_MD("bake_geometry"),&GridMap::bake_geometry);
+
+	ObjectTypeDB::bind_method(_MD("_baked_light_changed"),&GridMap::_baked_light_changed);
+	ObjectTypeDB::bind_method(_MD("set_use_baked_light","use"),&GridMap::set_use_baked_light);
+	ObjectTypeDB::bind_method(_MD("is_using_baked_light","use"),&GridMap::is_using_baked_light);
+
+	ObjectTypeDB::bind_method(_MD("_get_baked_light_meshes"),&GridMap::_get_baked_light_meshes);
+
+
 
 	ObjectTypeDB::set_method_flags("GridMap","bake_geometry",METHOD_FLAGS_DEFAULT|METHOD_FLAG_EDITOR);
 
@@ -1496,6 +1597,108 @@ void GridMap::bake_geometry() {
 
 }
 
+void GridMap::_baked_light_changed() {
+
+//	if (!baked_light_instance)
+//		VS::get_singleton()->instance_geometry_set_baked_light(get_instance(),RID());
+//	else
+//		VS::get_singleton()->instance_geometry_set_baked_light(get_instance(),baked_light_instance->get_baked_light_instance());
+	for(Map<OctantKey,Octant*>::Element *E=octant_map.front();E;E=E->next()) {
+
+		for(Map<int,Octant::ItemInstances>::Element *F=E->get()->items.front();F;F=F->next()) {
+
+			VS::get_singleton()->instance_geometry_set_baked_light(F->get().multimesh_instance,baked_light_instance?baked_light_instance->get_baked_light_instance():RID());
+		}
+
+	}
+
+}
+
+void GridMap::_find_baked_light() {
+
+	Node *n=get_parent();
+	while(n) {
+
+		BakedLightInstance *bl=n->cast_to<BakedLightInstance>();
+		if (bl) {
+
+			baked_light_instance=bl;
+			baked_light_instance->connect(SceneStringNames::get_singleton()->baked_light_changed,this,SceneStringNames::get_singleton()->_baked_light_changed);
+			_baked_light_changed();
+
+			return;
+		}
+
+		n=n->get_parent();
+	}
+
+	_baked_light_changed();
+}
+
+
+Array GridMap::_get_baked_light_meshes() {
+
+	if (theme.is_null())
+		return Array();
+
+	Vector3 ofs(cell_size*0.5*int(center_x),cell_size*0.5*int(center_y),cell_size*0.5*int(center_z));
+	Array meshes;
+
+	for (Map<IndexKey,Cell>::Element *E=cell_map.front();E;E=E->next()) {
+
+
+		int id = E->get().item;
+		if (!theme->has_item(id))
+			continue;
+		Ref<Mesh> mesh=theme->get_item_mesh(id);
+		if (mesh.is_null())
+			continue;
+
+		IndexKey ik=E->key();
+
+		Vector3 cellpos = Vector3(ik.x,ik.y,ik.z );
+
+		Transform xform;
+
+		xform.basis.set_orthogonal_index(E->get().rot);
+
+
+		xform.set_origin( cellpos*cell_size+ofs);
+		xform.basis.scale(Vector3(cell_scale,cell_scale,cell_scale));
+
+		meshes.push_back(xform);
+		meshes.push_back(mesh);
+
+	}
+
+	return meshes;
+}
+
+void GridMap::set_use_baked_light(bool p_use) {
+
+	if (use_baked_light==p_use)
+		return;
+
+	use_baked_light=p_use;
+
+	if (is_inside_world()) {
+		if (!p_use) {
+			if (baked_light_instance) {
+				baked_light_instance->disconnect(SceneStringNames::get_singleton()->baked_light_changed,this,SceneStringNames::get_singleton()->_baked_light_changed);
+				baked_light_instance=NULL;
+			}
+			_baked_light_changed();
+		} else {
+			_find_baked_light();
+		}
+	}
+
+}
+
+bool GridMap::is_using_baked_light() const{
+
+	return use_baked_light;
+}
 
 
 GridMap::GridMap() {
@@ -1516,7 +1719,8 @@ GridMap::GridMap() {
 	bake=false;
 	cell_scale=1.0;
 
-
+	baked_light_instance=NULL;
+	use_baked_light=false;
 
 
 }

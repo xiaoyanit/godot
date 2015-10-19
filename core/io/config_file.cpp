@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -357,6 +357,7 @@ if (res!=-1 && res < min_pos) {\
 		} break;
 		case MIN_OPEN: {
 			int level=1;
+			end++;
 			while(end<close_pos) {
 
 				if (str[end]=='[')
@@ -373,6 +374,7 @@ if (res!=-1 && res < min_pos) {\
 		} break;
 		case MIN_CURLY_OPEN: {
 			int level=1;
+			end++;
 			while(end<close_pos) {
 
 				if (str[end]=='{')
@@ -471,9 +473,12 @@ static Variant _decode_variant(const String& p_string) {
 		ERR_FAIL_COND_V(params.size()!=1 && params.size()!=2,Variant());
 		int scode=0;
 
-		if (params[0].is_numeric())
+		if (params[0].is_numeric()) {
 			scode=params[0].to_int();
-		else
+			if (scode < 10) {
+				scode=KEY_0+scode;
+			}
+		} else
 			scode=find_keycode(params[0]);
 
 		InputEvent ie;
@@ -577,7 +582,7 @@ static Variant _decode_variant(const String& p_string) {
 		int w=params[2].to_int();
 		int h=params[3].to_int();
 
-		if (w == 0 && w == 0) {
+		if (w == 0 && h == 0) {
 			//r_v = Image(w, h, imgformat);
 			return Image();
 		};

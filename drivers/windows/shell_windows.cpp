@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -27,6 +27,13 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 #ifdef WINDOWS_ENABLED
+
+#ifdef WINRT_ENABLED
+
+// Use Launcher class on windows 8
+
+#else
+
 //
 // C++ Implementation: shell_windows
 //
@@ -57,5 +64,7 @@ ShellWindows::ShellWindows()
 ShellWindows::~ShellWindows()
 {
 }
+
+#endif
 
 #endif

@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -85,6 +85,13 @@ void ScriptServer::register_language(ScriptLanguage *p_language) {
 	_languages[_language_count++]=p_language;
 }
 
+void ScriptServer::init_languages() {
+
+	for(int i=0;i<_language_count;i++) {
+		_languages[i]->init();
+	}
+}
+
 Variant ScriptInstance::call(const StringName& p_method,VARIANT_ARG_DECLARE) {
 
 	VARIANT_ARGPTRS;
@@ -128,6 +135,14 @@ ScriptInstance::~ScriptInstance() {
 
 
 }
+
+
+ScriptCodeCompletionCache *ScriptCodeCompletionCache::singleton=NULL;
+ScriptCodeCompletionCache::ScriptCodeCompletionCache() {
+	singleton=this;
+}
+
+
 
 void ScriptLanguage::frame() {
 
@@ -229,8 +244,6 @@ ScriptDebugger::ScriptDebugger() {
 }
 
 
-
-
 bool PlaceHolderScriptInstance::set(const StringName& p_name, const Variant& p_value) {
 
 	if (values.has(p_name)) {
@@ -285,8 +298,10 @@ void PlaceHolderScriptInstance::update(const List<PropertyInfo> &p_properties,co
 		to_remove.pop_front();
 	}
 
-	if (owner && owner->get_script_instance()==this)
+	if (owner && owner->get_script_instance()==this) {
+
 		owner->_change_notify();
+	}
 	//change notify
 }
 

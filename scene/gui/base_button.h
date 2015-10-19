@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -61,15 +61,8 @@ class BaseButton : public Control {
 		
 protected:
 
-	enum DrawMode {
-		DRAW_NORMAL,
-		DRAW_PRESSED,
-		DRAW_HOVER,
-		DRAW_DISABLED,
-	};
 
 
-	DrawMode get_draw_mode() const;
 	
 	virtual void pressed();
 	virtual void toggled(bool p_pressed);
@@ -78,11 +71,22 @@ protected:
 	void _notification(int p_what);
 
 public:
-	
+
+	enum DrawMode {
+		DRAW_NORMAL,
+		DRAW_PRESSED,
+		DRAW_HOVER,
+		DRAW_DISABLED,
+	};
+
+	DrawMode get_draw_mode() const;
+
 	/* Signals */
 	
 	bool is_pressed() const; ///< return wether button is pressed (toggled in)
 	bool is_pressing() const; ///< return wether button is pressed (toggled in)
+	bool is_hovered() const;
+
 	void set_pressed(bool p_pressed); ///only works in toggle mode
 	void set_toggle_mode(bool p_on);
 	bool is_toggle_mode() const;
@@ -98,5 +102,7 @@ public:
 	~BaseButton();
 
 };
+
+VARIANT_ENUM_CAST( BaseButton::DrawMode );
 
 #endif

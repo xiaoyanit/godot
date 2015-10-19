@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,7 +30,7 @@
 #define SCENE_STRING_NAMES_H
 
 #include "string_db.h"
-
+#include "path_db.h"
 class SceneStringNames {
 
 friend void register_scene_types();
@@ -56,13 +56,16 @@ public:
 	StringName _input_event;
 	StringName item_rect_changed;
 	StringName shader_shader;
-	StringName enter_scene;
-	StringName exit_scene;
+	StringName shader_unshaded;
+	StringName shading_mode;
+	StringName enter_tree;
+	StringName exit_tree;
 	StringName size_flags_changed;
 	StringName minimum_size_changed;
 	StringName idle;
 	StringName iteration;
 	StringName update;
+	StringName updated;
 
 	StringName line_separation;
 
@@ -81,6 +84,12 @@ public:
 	StringName body_exit_shape;
 	StringName body_exit;
 
+	StringName area_enter_shape;
+	StringName area_exit_shape;
+
+	StringName _body_inout;
+	StringName _area_inout;
+
 
 	StringName _get_gizmo_geometry;
 	StringName _can_gizmo_scale;
@@ -89,11 +98,14 @@ public:
 	StringName _process;
 	StringName _enter_world;
 	StringName _exit_world;
-	StringName _enter_scene;
-	StringName _exit_scene;
+	StringName _enter_tree;
+	StringName _exit_tree;
 	StringName _draw;
 	StringName _input;
 	StringName _ready;
+
+	StringName _pressed;
+	StringName _toggled;
 
 	StringName _update_scroll;
 	StringName _update_xform;
@@ -116,8 +128,11 @@ public:
 	StringName enter_camera;
 	StringName exit_camera;
 
-	StringName _body_enter_scene;
-	StringName _body_exit_scene;
+	StringName _body_enter_tree;
+	StringName _body_exit_tree;
+
+	StringName _area_enter_tree;
+	StringName _area_exit_tree;
 
 	StringName changed;
 	StringName _shader_changed;
@@ -128,6 +143,7 @@ public:
 	StringName offset;
 	StringName unit_offset;
 	StringName rotation_mode;
+	StringName rotate;
 	StringName v_offset;
 	StringName h_offset;
 
@@ -144,6 +160,26 @@ public:
 	StringName get_minimum_size;
 
 	StringName play_play;
+
+	StringName _im_update;
+	StringName _queue_update;
+
+	StringName baked_light_changed;
+	StringName _baked_light_changed;
+
+	StringName _mouse_enter;
+	StringName _mouse_exit;
+
+	StringName frame_changed;
+
+	StringName playback_speed;
+	StringName playback_active;
+	StringName autoplay;
+	StringName blend_times;
+	StringName speed;
+
+	NodePath path_pp;
+
 
 };
 

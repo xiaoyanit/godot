@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,24 +30,64 @@
 #define VIDEO_STREAM_H
 
 #include "audio_stream_resampled.h"
+#include "scene/resources/texture.h"
 
 
+class VideoStreamPlayback : public Resource {
 
-class VideoStream : public AudioStreamResampled {
-
-	OBJ_TYPE(VideoStream,AudioStreamResampled);
+	OBJ_TYPE(VideoStreamPlayback,Resource);
 
 protected:
 	static void _bind_methods();
 
 public:
 
-	virtual int get_pending_frame_count() const=0;
-	virtual Image pop_frame()=0;
-	virtual Image peek_frame() const=0;
+	typedef int (*AudioMixCallback)(void* p_udata,const int16_t *p_data,int p_frames);
 
-	VideoStream();
+	virtual void stop()=0;
+	virtual void play()=0;
+
+	virtual bool is_playing() const=0;
+
+	virtual void set_paused(bool p_paused)=0;
+	virtual bool is_paused(bool p_paused) const=0;
+
+	virtual void set_loop(bool p_enable)=0;
+	virtual bool has_loop() const=0;
+
+	virtual float get_length() const=0;
+
+	virtual float get_pos() const=0;
+	virtual void seek_pos(float p_time)=0;
+
+	virtual void set_audio_track(int p_idx) =0;
+
+	//virtual int mix(int16_t* p_bufer,int p_frames)=0;
+
+	virtual Ref<Texture> get_texture()=0;
+	virtual void update(float p_delta)=0;
+
+	virtual void set_mix_callback(AudioMixCallback p_callback,void *p_userdata)=0;
+	virtual int get_channels() const=0;
+	virtual int get_mix_rate() const=0;
+
+	VideoStreamPlayback();
 };
+
+
+class VideoStream : public Resource {
+
+	OBJ_TYPE( VideoStream, Resource );
+	OBJ_SAVE_TYPE( VideoStream ); //children are all saved as AudioStream, so they can be exchanged
+
+public:
+
+    virtual void set_audio_track(int p_track)=0;
+	virtual Ref<VideoStreamPlayback> instance_playback()=0;
+
+	VideoStream() {}
+};
+
 
 #endif
 

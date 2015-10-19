@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -36,7 +36,7 @@
 #include "scene/resources/ray_shape.h"
 #include "scene/resources/convex_polygon_shape.h"
 #include "scene/resources/plane_shape.h"
-#include "editor_shape_gizmos.h"
+#include "quick_hull.h"
 
 // Keep small children away from this file.
 // It's so ugly it will eat them alive
@@ -53,6 +53,7 @@ void SpatialGizmoTool::clear() {
 
 	}
 
+	billboard_handle=false;
 	collision_segments.clear();
 	collision_mesh=Ref<TriangleMesh>();
 	instances.clear();
@@ -74,6 +75,7 @@ void SpatialGizmoTool::Instance::create_instance(Spatial *p_base) {
 		VS::get_singleton()->instance_set_extra_visibility_margin(instance,1);
 	VS::get_singleton()->instance_geometry_set_flag(instance,VS::INSTANCE_FLAG_CAST_SHADOW,false);
 	VS::get_singleton()->instance_geometry_set_flag(instance,VS::INSTANCE_FLAG_RECEIVE_SHADOWS,false);
+	VS::get_singleton()->instance_set_layer_mask(instance,1<<SpatialEditorViewport::GIZMO_EDIT_LAYER); //gizmos are 26
 }
 
 
@@ -103,10 +105,39 @@ void SpatialGizmoTool::add_lines(const Vector<Vector3> &p_lines, const Ref<Mater
 	Ref<Mesh> mesh = memnew( Mesh );
 	Array a;
 	a.resize(Mesh::ARRAY_MAX);
+
 	a[Mesh::ARRAY_VERTEX]=p_lines;
+
+	DVector<Color> color;
+	color.resize(p_lines.size());
+	{
+		DVector<Color>::Write w = color.write();
+		for(int i=0;i<p_lines.size();i++) {
+			if (is_selected())
+				w[i]=Color(1,1,1,0.6);
+			else
+				w[i]=Color(1,1,1,0.25);
+		}
+
+	}
+
+	a[Mesh::ARRAY_COLOR]=color;
+
+
 	mesh->add_surface(Mesh::PRIMITIVE_LINES,a);
 	mesh->surface_set_material(0,p_material);
 
+	if (p_billboard) {
+		float md=0;
+		for(int i=0;i<p_lines.size();i++) {
+
+			md=MAX(0,p_lines[i].length());
+
+		}
+		if (md) {
+			mesh->set_custom_aabb(AABB(Vector3(-md,-md,-md),Vector3(md,md,md)*2.0));
+		}
+	}
 
 	ins.billboard=p_billboard;
 	ins.mesh=mesh;
@@ -145,6 +176,17 @@ void SpatialGizmoTool::add_unscaled_billboard(const Ref<Material>& p_material,fl
 	mesh->add_surface(Mesh::PRIMITIVE_TRIANGLE_FAN,a);
 	mesh->surface_set_material(0,p_material);
 
+	if (true) {
+		float md=0;
+		for(int i=0;i<vs.size();i++) {
+
+			md=MAX(0,vs[i].length());
+
+		}
+		if (md) {
+			mesh->set_custom_aabb(AABB(Vector3(-md,-md,-md),Vector3(md,md,md)*2.0));
+		}
+	}
 
 	ins.mesh=mesh;
 	ins.unscaled=true;
@@ -177,12 +219,16 @@ void SpatialGizmoTool::add_collision_segments(const Vector<Vector3> &p_lines) {
 
 void SpatialGizmoTool::add_handles(const Vector<Vector3> &p_handles, bool p_billboard,bool p_secondary){
 
+	billboard_handle=p_billboard;
+
+	if (!is_selected())
+		return;
+
 	ERR_FAIL_COND(!spatial_node);
 
 	ERR_FAIL_COND(!spatial_node);
 	Instance ins;
 
-	billboard_handle=p_billboard;
 
 	Ref<Mesh> mesh = memnew( Mesh );
 #if 1
@@ -190,11 +236,35 @@ void SpatialGizmoTool::add_handles(const Vector<Vector3> &p_handles, bool p_bill
 	Array a;
 	a.resize(VS::ARRAY_MAX);
 	a[VS::ARRAY_VERTEX]=p_handles;
+	DVector<Color> colors;
+	{
+		colors.resize(p_handles.size());
+		DVector<Color>::Write w=colors.write();
+		for(int i=0;i<p_handles.size();i++) {
+
+			Color col(1,1,1,1);
+			if (SpatialEditor::get_singleton()->get_over_gizmo_handle()!=i)
+				col=Color(0.9,0.9,0.9,0.9);
+			w[i]=col;
+		}
+
+	}
+	a[VS::ARRAY_COLOR]=colors;
 	mesh->add_surface(Mesh::PRIMITIVE_POINTS,a);
-	if (!p_secondary)
-		mesh->surface_set_material(0,SpatialEditorGizmos::singleton->handle2_material);
-	else
-		mesh->surface_set_material(0,SpatialEditorGizmos::singleton->handle2_secondary_material);
+	mesh->surface_set_material(0,SpatialEditorGizmos::singleton->handle2_material);
+
+	if (p_billboard) {
+		float md=0;
+		for(int i=0;i<p_handles.size();i++) {
+
+			md=MAX(0,p_handles[i].length());
+
+		}
+		if (md) {
+			mesh->set_custom_aabb(AABB(Vector3(-md,-md,-md),Vector3(md,md,md)*2.0));
+		}
+	}
+
 
 
 #else
@@ -467,6 +537,9 @@ bool SpatialGizmoTool::intersect_ray(const Camera *p_camera,const Point2& p_poin
 		int vc=collision_segments.size();
 		const Vector3* vptr=collision_segments.ptr();
 		Transform t = spatial_node->get_global_transform();
+		if (billboard_handle) {
+			t.set_look_at(t.origin,t.origin+p_camera->get_transform().basis.get_axis(2),p_camera->get_transform().basis.get_axis(1));
+		}
 
 		Vector3 cp;
 		float cpd=1e20;
@@ -507,7 +580,7 @@ bool SpatialGizmoTool::intersect_ray(const Camera *p_camera,const Point2& p_poin
 			}
 		}
 
-		if (cpd<5) {
+		if (cpd<8) {
 
 			r_pos=cp;
 			r_normal=-p_camera->project_ray_normal(p_point);
@@ -520,6 +593,11 @@ bool SpatialGizmoTool::intersect_ray(const Camera *p_camera,const Point2& p_poin
 
 	if (collision_mesh.is_valid()) {
 		Transform gt = spatial_node->get_global_transform();
+
+		if (billboard_handle) {
+			gt.set_look_at(gt.origin,gt.origin+p_camera->get_transform().basis.get_axis(2),p_camera->get_transform().basis.get_axis(1));
+		}
+
 		Transform ai=gt.affine_inverse();
 		Vector3 ray_from = ai.xform(p_camera->project_ray_origin(p_point));
 		Vector3 ray_dir=ai.basis.xform(p_camera->project_ray_normal(p_point)).normalized();
@@ -815,6 +893,7 @@ void LightSpatialGizmo::redraw() {
 		}
 
 		add_lines(points,SpatialEditorGizmos::singleton->light_material,true);
+		add_collision_segments(points);
 
 		add_unscaled_billboard(SpatialEditorGizmos::singleton->light_material_omni_icon,0.05);
 
@@ -1159,6 +1238,10 @@ void SkeletonSpatialGizmo::redraw() {
 	weights[0]=1;
 
 
+	AABB aabb;
+
+	Color bonecolor = Color(1.0,0.4,0.4,0.3);
+	Color rootcolor = Color(0.4,1.0,0.4,0.1);
 
 	for (int i=0;i<skel->get_bone_count();i++) {
 
@@ -1169,8 +1252,97 @@ void SkeletonSpatialGizmo::redraw() {
 
 			Vector3 v0 = grests[parent].origin;
 			Vector3 v1 = grests[i].origin;
+			Vector3 d = (v1-v0).normalized();
+			float dist = v0.distance_to(v1);
+
+			//find closest axis
+			int closest=-1;
+			float closest_d = 0.0;
+
+			for(int j=0;j<3;j++) {
+				float dp = Math::abs(grests[parent].basis[j].normalized().dot(d));
+				if (j==0 || dp>closest_d)
+					closest=j;
+			}
+
+			//find closest other
+			Vector3 first;
+			Vector3 points[4];
+			int pointidx=0;
+			for(int j=0;j<3;j++) {
+
+				bones[0]=parent;
+				surface_tool->add_bones(bones);
+				surface_tool->add_weights(weights);
+				surface_tool->add_color(rootcolor);
+				surface_tool->add_vertex(v0-grests[parent].basis[j].normalized()*dist*0.05);
+				surface_tool->add_bones(bones);
+				surface_tool->add_weights(weights);
+				surface_tool->add_color(rootcolor);
+				surface_tool->add_vertex(v0+grests[parent].basis[j].normalized()*dist*0.05);
+
+				if (j==closest)
+					continue;
+
+				Vector3 axis;
+				if (first==Vector3()) {
+					axis = d.cross(d.cross(grests[parent].basis[j])).normalized();
+					first=axis;
+				} else {
+					axis = d.cross(first).normalized();
+				}
+
+				for(int k=0;k<2;k++) {
+
+					if (k==1)
+						axis=-axis;
+					Vector3 point = v0+d*dist*0.2;
+					point+=axis*dist*0.1;
 
 
+					bones[0]=parent;
+					surface_tool->add_bones(bones);
+					surface_tool->add_weights(weights);
+					surface_tool->add_color(bonecolor);
+					surface_tool->add_vertex(v0);
+					surface_tool->add_bones(bones);
+					surface_tool->add_weights(weights);
+					surface_tool->add_color(bonecolor);
+					surface_tool->add_vertex(point);
+
+					bones[0]=parent;
+					surface_tool->add_bones(bones);
+					surface_tool->add_weights(weights);
+					surface_tool->add_color(bonecolor);
+					surface_tool->add_vertex(point);
+					bones[0]=i;
+					surface_tool->add_bones(bones);
+					surface_tool->add_weights(weights);
+					surface_tool->add_color(bonecolor);
+					surface_tool->add_vertex(v1);
+					points[pointidx++]=point;
+
+				}
+
+			}
+
+			SWAP( points[1],points[2] );
+			for(int j=0;j<4;j++) {
+
+
+				bones[0]=parent;
+				surface_tool->add_bones(bones);
+				surface_tool->add_weights(weights);
+				surface_tool->add_color(bonecolor);
+				surface_tool->add_vertex(points[j]);
+				surface_tool->add_bones(bones);
+				surface_tool->add_weights(weights);
+				surface_tool->add_color(bonecolor);
+				surface_tool->add_vertex(points[(j+1)%4]);
+			}
+
+
+/*
 			bones[0]=parent;
 			surface_tool->add_bones(bones);
 			surface_tool->add_weights(weights);
@@ -1181,13 +1353,13 @@ void SkeletonSpatialGizmo::redraw() {
 			surface_tool->add_weights(weights);
 			surface_tool->add_color(Color(0.4,1,0.4,0.4));
 			surface_tool->add_vertex(v1);
-
+*/
 		} else {
 
 			grests[i]=skel->get_bone_rest(i);
 			bones[0]=i;
 		}
-
+/*
 		Transform  t = grests[i];
 		t.orthonormalize();
 
@@ -1224,6 +1396,7 @@ void SkeletonSpatialGizmo::redraw() {
 			}
 
 		}
+		*/
 	}
 
 	Ref<Mesh> m = surface_tool->commit();
@@ -1396,10 +1569,11 @@ RayCastSpatialGizmo::RayCastSpatialGizmo(RayCast* p_raycast){
 }
 
 
+
 /////
 
 
-void CarWheelSpatialGizmo::redraw() {
+void VehicleWheelSpatialGizmo::redraw() {
 
 	clear();
 
@@ -1421,7 +1595,7 @@ void CarWheelSpatialGizmo::redraw() {
 		const int springsec=4;
 
 		for(int j=0;j<springsec;j++) {
-			float t = car_wheel->get_travel()*5;
+			float t = car_wheel->get_suspension_rest_length()*5;
 			points.push_back(Vector3(a.x,i/360.0*t/springsec+j*(t/springsec),a.y)*0.2);
 			points.push_back(Vector3(b.x,(i+skip)/360.0*t/springsec+j*(t/springsec),b.y)*0.2);
 		}
@@ -1431,11 +1605,11 @@ void CarWheelSpatialGizmo::redraw() {
 
 	//travel
 	points.push_back(Vector3(0,0,0));
-	points.push_back(Vector3(0,car_wheel->get_travel(),0));
+	points.push_back(Vector3(0,car_wheel->get_suspension_rest_length(),0));
 
 	//axis
-	points.push_back(Vector3(r*0.2,car_wheel->get_travel(),0));
-	points.push_back(Vector3(-r*0.2,car_wheel->get_travel(),0));
+	points.push_back(Vector3(r*0.2,car_wheel->get_suspension_rest_length(),0));
+	points.push_back(Vector3(-r*0.2,car_wheel->get_suspension_rest_length(),0));
 	//axis
 	points.push_back(Vector3(r*0.2,0,0));
 	points.push_back(Vector3(-r*0.2,0,0));
@@ -1453,7 +1627,7 @@ void CarWheelSpatialGizmo::redraw() {
 
 }
 
-CarWheelSpatialGizmo::CarWheelSpatialGizmo(CarWheel* p_car_wheel){
+VehicleWheelSpatialGizmo::VehicleWheelSpatialGizmo(VehicleWheel* p_car_wheel){
 
 	set_spatial_node(p_car_wheel);
 	car_wheel=p_car_wheel;
@@ -1606,7 +1780,7 @@ void CollisionShapeSpatialGizmo::set_handle(int p_idx,Camera *p_camera, const Po
 		Ref<CapsuleShape> cs = s;
 		Vector3 ra,rb;
 		Geometry::get_closest_points_between_segments(Vector3(),axis*4096,sg[0],sg[1],ra,rb);
-		float d = ra[p_idx];
+		float d = axis.dot(ra);
 		if (p_idx==1)
 			d-=cs->get_radius();
 		if (d<0.001)
@@ -1899,6 +2073,34 @@ void CollisionShapeSpatialGizmo::redraw(){
 	}
 
 
+	if (s->cast_to<ConvexPolygonShape>()) {
+
+		DVector<Vector3> points = s->cast_to<ConvexPolygonShape>()->get_points();
+
+		if (points.size()>3) {
+
+			QuickHull qh;
+			Vector<Vector3> varr = Variant(points);
+			Geometry::MeshData md;
+			Error err = qh.build(varr,md);
+			if (err==OK) {
+				Vector<Vector3> points;
+				points.resize(md.edges.size()*2);
+				for(int i=0;i<md.edges.size();i++) {
+					points[i*2+0]=md.vertices[md.edges[i].a];
+					points[i*2+1]=md.vertices[md.edges[i].b];
+				}
+
+
+				add_lines(points,SpatialEditorGizmos::singleton->shape_material);
+				add_collision_segments(points);
+
+			}
+		}
+
+	}
+
+
 	if (s->cast_to<RayShape>()) {
 
 		Ref<RayShape> rs=s;
@@ -1924,7 +2126,39 @@ CollisionShapeSpatialGizmo::CollisionShapeSpatialGizmo(CollisionShape* p_cs) {
 
 
 
+/////
 
+
+void CollisionPolygonSpatialGizmo::redraw() {
+
+	clear();
+
+	Vector<Vector2> points = polygon->get_polygon();
+	float depth = polygon->get_depth()*0.5;
+
+	Vector<Vector3> lines;
+	for(int i=0;i<points.size();i++) {
+
+		int n = (i+1)%points.size();
+		lines.push_back(Vector3(points[i].x,points[i].y,depth));
+		lines.push_back(Vector3(points[n].x,points[n].y,depth));
+		lines.push_back(Vector3(points[i].x,points[i].y,-depth));
+		lines.push_back(Vector3(points[n].x,points[n].y,-depth));
+		lines.push_back(Vector3(points[i].x,points[i].y,depth));
+		lines.push_back(Vector3(points[i].x,points[i].y,-depth));
+
+	}
+
+	add_lines(lines,SpatialEditorGizmos::singleton->shape_material);
+	add_collision_segments(lines);
+}
+
+CollisionPolygonSpatialGizmo::CollisionPolygonSpatialGizmo(CollisionPolygon* p_polygon){
+
+	set_spatial_node(p_polygon);
+	polygon=p_polygon;
+}
+///
 
 
 String VisibilityNotifierGizmo::get_handle_name(int p_idx) const {
@@ -2022,9 +2256,615 @@ VisibilityNotifierGizmo::VisibilityNotifierGizmo(VisibilityNotifier* p_notifier)
 	set_spatial_node(p_notifier);
 }
 
+////////
 
+
+
+void NavigationMeshSpatialGizmo::redraw() {
+
+	clear();
+	Ref<NavigationMesh> navmeshie = navmesh->get_navigation_mesh();
+	if (navmeshie.is_null())
+		return;
+
+	DVector<Vector3> vertices = navmeshie->get_vertices();
+	DVector<Vector3>::Read vr=vertices.read();
+	List<Face3> faces;
+	for(int i=0;i<navmeshie->get_polygon_count();i++) {
+		Vector<int> p = navmeshie->get_polygon(i);
+
+		for(int j=2;j<p.size();j++) {
+			Face3 f;
+			f.vertex[0]=vr[p[0]];
+			f.vertex[1]=vr[p[j-1]];
+			f.vertex[2]=vr[p[j]];
+
+			faces.push_back(f);
+		}
+	}
+
+
+	Map<_EdgeKey,bool> edge_map;
+	DVector<Vector3> tmeshfaces;
+	tmeshfaces.resize(faces.size()*3);
+
+	{
+		DVector<Vector3>::Write tw=tmeshfaces.write();
+		int tidx=0;
+
+
+		for(List<Face3>::Element *E=faces.front();E;E=E->next()) {
+
+			const Face3 &f = E->get();
+
+			for(int j=0;j<3;j++) {
+
+				tw[tidx++]=f.vertex[j];
+				_EdgeKey ek;
+				ek.from=f.vertex[j].snapped(CMP_EPSILON);
+				ek.to=f.vertex[(j+1)%3].snapped(CMP_EPSILON);
+				if (ek.from<ek.to)
+					SWAP(ek.from,ek.to);
+
+				Map<_EdgeKey,bool>::Element *E=edge_map.find(ek);
+
+				if (E) {
+
+					E->get()=false;
+
+				} else {
+
+					edge_map[ek]=true;
+				}
+
+			}
+		}
+	}
+	Vector<Vector3> lines;
+
+	for(Map<_EdgeKey,bool>::Element *E=edge_map.front();E;E=E->next()) {
+
+		if (E->get()) {
+			lines.push_back(E->key().from);
+			lines.push_back(E->key().to);
+		}
+	}
+
+	Ref<TriangleMesh> tmesh = memnew( TriangleMesh);
+	tmesh->create(tmeshfaces);
+
+	if (lines.size())
+		add_lines(lines,navmesh->is_enabled()?SpatialEditorGizmos::singleton->navmesh_edge_material:SpatialEditorGizmos::singleton->navmesh_edge_material_disabled);
+	add_collision_triangles(tmesh);
+	Ref<Mesh> m = memnew( Mesh );
+	Array a;
+	a.resize(Mesh::ARRAY_MAX);
+	a[0]=tmeshfaces;
+	m->add_surface(Mesh::PRIMITIVE_TRIANGLES,a);
+	m->surface_set_material(0,navmesh->is_enabled()?SpatialEditorGizmos::singleton->navmesh_solid_material:SpatialEditorGizmos::singleton->navmesh_solid_material_disabled);
+	add_mesh(m);
+	add_collision_segments(lines);
+
+}
+
+NavigationMeshSpatialGizmo::NavigationMeshSpatialGizmo(NavigationMeshInstance *p_navmesh){
+
+	set_spatial_node(p_navmesh);
+	navmesh=p_navmesh;
+}
+
+//////
+///
+///
+
+
+
+void PinJointSpatialGizmo::redraw() {
+
+	clear();
+	Vector<Vector3> cursor_points;
+	float cs = 0.25;
+	cursor_points.push_back(Vector3(+cs,0,0));
+	cursor_points.push_back(Vector3(-cs,0,0));
+	cursor_points.push_back(Vector3(0,+cs,0));
+	cursor_points.push_back(Vector3(0,-cs,0));
+	cursor_points.push_back(Vector3(0,0,+cs));
+	cursor_points.push_back(Vector3(0,0,-cs));
+	add_collision_segments(cursor_points);
+	add_lines(cursor_points,SpatialEditorGizmos::singleton->joint_material);
+
+}
+
+
+PinJointSpatialGizmo::PinJointSpatialGizmo(PinJoint* p_p3d) {
+
+	p3d=p_p3d;
+	set_spatial_node(p3d);
+}
+
+////
+
+void HingeJointSpatialGizmo::redraw() {
+
+	clear();
+	Vector<Vector3> cursor_points;
+	float cs = 0.25;
+	/*cursor_points.push_back(Vector3(+cs,0,0));
+	cursor_points.push_back(Vector3(-cs,0,0));
+	cursor_points.push_back(Vector3(0,+cs,0));
+	cursor_points.push_back(Vector3(0,-cs,0));*/
+	cursor_points.push_back(Vector3(0,0,+cs*2));
+	cursor_points.push_back(Vector3(0,0,-cs*2));
+
+	float ll = p3d->get_param(HingeJoint::PARAM_LIMIT_LOWER);
+	float ul = p3d->get_param(HingeJoint::PARAM_LIMIT_UPPER);
+
+	if (p3d->get_flag(HingeJoint::FLAG_USE_LIMIT) && ll<ul) {
+
+		const int points = 32;
+		float step = (ul-ll)/points;
+
+
+		for(int i=0;i<points;i++) {
+
+			float s = ll+i*(ul-ll)/points;
+			float n = ll+(i+1)*(ul-ll)/points;
+
+			Vector3 from=Vector3( -Math::sin(s),Math::cos(s), 0 )*cs;
+			Vector3 to=Vector3( -Math::sin(n),Math::cos(n), 0 )*cs;
+
+			if (i==points-1) {
+				cursor_points.push_back(to);
+				cursor_points.push_back(Vector3());
+			}
+			if (i==0) {
+				cursor_points.push_back(from);
+				cursor_points.push_back(Vector3());
+			}
+
+
+			cursor_points.push_back(from);
+			cursor_points.push_back(to);
+
+
+		}
+
+		cursor_points.push_back(Vector3(0,cs*1.5,0));
+		cursor_points.push_back(Vector3());
+
+	} else {
+
+
+		const int points = 32;
+
+		for(int i=0;i<points;i++) {
+
+			float s = ll+i*(Math_PI*2.0)/points;
+			float n = ll+(i+1)*(Math_PI*2.0)/points;
+
+			Vector3 from=Vector3( -Math::sin(s),Math::cos(s), 0 )*cs;
+			Vector3 to=Vector3( -Math::sin(n),Math::cos(n), 0 )*cs;
+
+			cursor_points.push_back(from);
+			cursor_points.push_back(to);
+
+		}
+
+	}
+	add_collision_segments(cursor_points);
+	add_lines(cursor_points,SpatialEditorGizmos::singleton->joint_material);
+
+}
+
+
+HingeJointSpatialGizmo::HingeJointSpatialGizmo(HingeJoint* p_p3d) {
+
+	p3d=p_p3d;
+	set_spatial_node(p3d);
+}
+
+///////
+///
+////
+
+void SliderJointSpatialGizmo::redraw() {
+
+	clear();
+	Vector<Vector3> cursor_points;
+	float cs = 0.25;
+	/*cursor_points.push_back(Vector3(+cs,0,0));
+	cursor_points.push_back(Vector3(-cs,0,0));
+	cursor_points.push_back(Vector3(0,+cs,0));
+	cursor_points.push_back(Vector3(0,-cs,0));*/
+	cursor_points.push_back(Vector3(0,0,+cs*2));
+	cursor_points.push_back(Vector3(0,0,-cs*2));
+
+	float ll = p3d->get_param(SliderJoint::PARAM_ANGULAR_LIMIT_LOWER);
+	float ul = p3d->get_param(SliderJoint::PARAM_ANGULAR_LIMIT_UPPER);
+	float lll = -p3d->get_param(SliderJoint::PARAM_LINEAR_LIMIT_LOWER);
+	float lul = -p3d->get_param(SliderJoint::PARAM_LINEAR_LIMIT_UPPER);
+
+	if (lll>lul) {
+
+		cursor_points.push_back(Vector3(lul,0,0));
+		cursor_points.push_back(Vector3(lll,0,0));
+
+		cursor_points.push_back(Vector3(lul,-cs,-cs));
+		cursor_points.push_back(Vector3(lul,-cs,cs));
+		cursor_points.push_back(Vector3(lul,-cs,cs));
+		cursor_points.push_back(Vector3(lul,cs,cs));
+		cursor_points.push_back(Vector3(lul,cs,cs));
+		cursor_points.push_back(Vector3(lul,cs,-cs));
+		cursor_points.push_back(Vector3(lul,cs,-cs));
+		cursor_points.push_back(Vector3(lul,-cs,-cs));
+
+
+		cursor_points.push_back(Vector3(lll,-cs,-cs));
+		cursor_points.push_back(Vector3(lll,-cs,cs));
+		cursor_points.push_back(Vector3(lll,-cs,cs));
+		cursor_points.push_back(Vector3(lll,cs,cs));
+		cursor_points.push_back(Vector3(lll,cs,cs));
+		cursor_points.push_back(Vector3(lll,cs,-cs));
+		cursor_points.push_back(Vector3(lll,cs,-cs));
+		cursor_points.push_back(Vector3(lll,-cs,-cs));
+
+
+	} else {
+
+		cursor_points.push_back(Vector3(+cs*2,0,0));
+		cursor_points.push_back(Vector3(-cs*2,0,0));
+
+	}
+
+	if (ll<ul) {
+
+		const int points = 32;
+		float step = (ul-ll)/points;
+
+
+		for(int i=0;i<points;i++) {
+
+			float s = ll+i*(ul-ll)/points;
+			float n = ll+(i+1)*(ul-ll)/points;
+
+			Vector3 from=Vector3(0, Math::cos(s), -Math::sin(s) )*cs;
+			Vector3 to=Vector3(0,Math::cos(n),  -Math::sin(n) )*cs;
+
+			if (i==points-1) {
+				cursor_points.push_back(to);
+				cursor_points.push_back(Vector3());
+			}
+			if (i==0) {
+				cursor_points.push_back(from);
+				cursor_points.push_back(Vector3());
+			}
+
+
+			cursor_points.push_back(from);
+			cursor_points.push_back(to);
+
+
+		}
+
+		cursor_points.push_back(Vector3(0,cs*1.5,0));
+		cursor_points.push_back(Vector3());
+
+	} else {
+
+
+		const int points = 32;
+
+		for(int i=0;i<points;i++) {
+
+			float s = ll+i*(Math_PI*2.0)/points;
+			float n = ll+(i+1)*(Math_PI*2.0)/points;
+
+			Vector3 from=Vector3(0,Math::cos(s),-Math::sin(s) )*cs;
+			Vector3 to=Vector3( 0,Math::cos(n),-Math::sin(n) )*cs;
+
+			cursor_points.push_back(from);
+			cursor_points.push_back(to);
+
+		}
+
+	}
+	add_collision_segments(cursor_points);
+	add_lines(cursor_points,SpatialEditorGizmos::singleton->joint_material);
+
+}
+
+
+SliderJointSpatialGizmo::SliderJointSpatialGizmo(SliderJoint* p_p3d) {
+
+	p3d=p_p3d;
+	set_spatial_node(p3d);
+}
+
+///////
+///
+////
+
+void ConeTwistJointSpatialGizmo::redraw() {
+
+	clear();
+	float cs = 0.25;
+	Vector<Vector3> points;
+
+	float r = 1.0;
+	float w = r*Math::sin(p3d->get_param(ConeTwistJoint::PARAM_SWING_SPAN));
+	float d = r*Math::cos(p3d->get_param(ConeTwistJoint::PARAM_SWING_SPAN));
+
+
+	//swing
+	for(int i=0;i<360;i+=10) {
+
+		float ra=Math::deg2rad(i);
+		float rb=Math::deg2rad(i+10);
+		Point2 a = Vector2(Math::sin(ra),Math::cos(ra))*w;
+		Point2 b = Vector2(Math::sin(rb),Math::cos(rb))*w;
+
+		/*points.push_back(Vector3(a.x,0,a.y));
+		points.push_back(Vector3(b.x,0,b.y));
+		points.push_back(Vector3(0,a.x,a.y));
+		points.push_back(Vector3(0,b.x,b.y));*/
+		points.push_back(Vector3(d,a.x,a.y));
+		points.push_back(Vector3(d,b.x,b.y));
+
+		if (i%90==0) {
+
+			points.push_back(Vector3(d,a.x,a.y));
+			points.push_back(Vector3());
+
+		}
+	}
+
+	points.push_back(Vector3());
+	points.push_back(Vector3(1,0,0));
+
+	//twist
+	/*
+	 */
+	float ts=Math::rad2deg(p3d->get_param(ConeTwistJoint::PARAM_TWIST_SPAN));
+	ts=MIN(ts,720);
+
+
+	for(int i=0;i<int(ts);i+=5) {
+
+		float ra=Math::deg2rad(i);
+		float rb=Math::deg2rad(i+5);
+		float c = i/720.0;
+		float cn = (i+5)/720.0;
+		Point2 a = Vector2(Math::sin(ra),Math::cos(ra))*w*c;
+		Point2 b = Vector2(Math::sin(rb),Math::cos(rb))*w*cn;
+
+		/*points.push_back(Vector3(a.x,0,a.y));
+		points.push_back(Vector3(b.x,0,b.y));
+		points.push_back(Vector3(0,a.x,a.y));
+		points.push_back(Vector3(0,b.x,b.y));*/
+
+		points.push_back(Vector3(c,a.x,a.y));
+		points.push_back(Vector3(cn,b.x,b.y));
+
+	}
+
+
+	add_collision_segments(points);
+	add_lines(points,SpatialEditorGizmos::singleton->joint_material);
+
+}
+
+
+ConeTwistJointSpatialGizmo::ConeTwistJointSpatialGizmo(ConeTwistJoint* p_p3d) {
+
+	p3d=p_p3d;
+	set_spatial_node(p3d);
+}
 
 ////////
+/// \brief SpatialEditorGizmos::singleton
+///
+///////
+///
+////
+
+void Generic6DOFJointSpatialGizmo::redraw() {
+
+	clear();
+	Vector<Vector3> cursor_points;
+	float cs = 0.25;
+
+	for(int ax=0;ax<3;ax++) {
+		/*cursor_points.push_back(Vector3(+cs,0,0));
+		cursor_points.push_back(Vector3(-cs,0,0));
+		cursor_points.push_back(Vector3(0,+cs,0));
+		cursor_points.push_back(Vector3(0,-cs,0));
+		cursor_points.push_back(Vector3(0,0,+cs*2));
+		cursor_points.push_back(Vector3(0,0,-cs*2)); */
+
+		float ll;
+		float ul;
+		float lll;
+		float lul;
+
+		int a1,a2,a3;
+		bool enable_ang;
+		bool enable_lin;
+
+		switch(ax) {
+			case 0:
+				ll = p3d->get_param_x(Generic6DOFJoint::PARAM_ANGULAR_LOWER_LIMIT);
+				ul = p3d->get_param_x(Generic6DOFJoint::PARAM_ANGULAR_UPPER_LIMIT);
+				lll = -p3d->get_param_x(Generic6DOFJoint::PARAM_LINEAR_LOWER_LIMIT);
+				lul = -p3d->get_param_x(Generic6DOFJoint::PARAM_LINEAR_UPPER_LIMIT);
+				enable_ang = p3d->get_flag_x(Generic6DOFJoint::FLAG_ENABLE_ANGULAR_LIMIT);
+				enable_lin = p3d->get_flag_x(Generic6DOFJoint::FLAG_ENABLE_LINEAR_LIMIT);
+				a1=0;
+				a2=1;
+				a3=2;
+			break;
+			case 1:
+				ll = p3d->get_param_y(Generic6DOFJoint::PARAM_ANGULAR_LOWER_LIMIT);
+				ul = p3d->get_param_y(Generic6DOFJoint::PARAM_ANGULAR_UPPER_LIMIT);
+				lll = -p3d->get_param_y(Generic6DOFJoint::PARAM_LINEAR_LOWER_LIMIT);
+				lul = -p3d->get_param_y(Generic6DOFJoint::PARAM_LINEAR_UPPER_LIMIT);
+				enable_ang = p3d->get_flag_y(Generic6DOFJoint::FLAG_ENABLE_ANGULAR_LIMIT);
+				enable_lin = p3d->get_flag_y(Generic6DOFJoint::FLAG_ENABLE_LINEAR_LIMIT);
+				a1=2;
+				a2=0;
+				a3=1;
+			break;
+			case 2:
+				ll = p3d->get_param_z(Generic6DOFJoint::PARAM_ANGULAR_LOWER_LIMIT);
+				ul = p3d->get_param_z(Generic6DOFJoint::PARAM_ANGULAR_UPPER_LIMIT);
+				lll = -p3d->get_param_z(Generic6DOFJoint::PARAM_LINEAR_LOWER_LIMIT);
+				lul = -p3d->get_param_z(Generic6DOFJoint::PARAM_LINEAR_UPPER_LIMIT);
+				enable_ang = p3d->get_flag_z(Generic6DOFJoint::FLAG_ENABLE_ANGULAR_LIMIT);
+				enable_lin = p3d->get_flag_z(Generic6DOFJoint::FLAG_ENABLE_LINEAR_LIMIT);
+
+				a1=1;
+				a2=2;
+				a3=0;
+			break;
+		}
+
+#define ADD_VTX(x,y,z)\
+		{\
+			Vector3 v;\
+			v[a1]=(x);\
+			v[a2]=(y);\
+			v[a3]=(z);\
+			cursor_points.push_back(v);\
+		}
+
+#define SET_VTX(what,x,y,z)\
+		{\
+			Vector3 v;\
+			v[a1]=(x);\
+			v[a2]=(y);\
+			v[a3]=(z);\
+			what=v;\
+		}
+
+
+
+
+		if (enable_lin && lll>=lul) {
+
+			ADD_VTX(lul,0,0);
+			ADD_VTX(lll,0,0);
+
+			ADD_VTX(lul,-cs,-cs);
+			ADD_VTX(lul,-cs,cs);
+			ADD_VTX(lul,-cs,cs);
+			ADD_VTX(lul,cs,cs);
+			ADD_VTX(lul,cs,cs);
+			ADD_VTX(lul,cs,-cs);
+			ADD_VTX(lul,cs,-cs);
+			ADD_VTX(lul,-cs,-cs);
+
+
+			ADD_VTX(lll,-cs,-cs);
+			ADD_VTX(lll,-cs,cs);
+			ADD_VTX(lll,-cs,cs);
+			ADD_VTX(lll,cs,cs);
+			ADD_VTX(lll,cs,cs);
+			ADD_VTX(lll,cs,-cs);
+			ADD_VTX(lll,cs,-cs);
+			ADD_VTX(lll,-cs,-cs);
+
+
+		} else {
+
+			ADD_VTX(+cs*2,0,0);
+			ADD_VTX(-cs*2,0,0);
+
+		}
+
+		if (enable_ang && ll<=ul) {
+
+			const int points = 32;
+			float step = (ul-ll)/points;
+
+
+			for(int i=0;i<points;i++) {
+
+				float s = ll+i*(ul-ll)/points;
+				float n = ll+(i+1)*(ul-ll)/points;
+
+				Vector3 from;
+				SET_VTX(from,0, Math::cos(s), -Math::sin(s) );
+				from*=cs;
+				Vector3 to;
+				SET_VTX(to,0,Math::cos(n),  -Math::sin(n));
+				to*=cs;
+
+				if (i==points-1) {
+					cursor_points.push_back(to);
+					cursor_points.push_back(Vector3());
+				}
+				if (i==0) {
+					cursor_points.push_back(from);
+					cursor_points.push_back(Vector3());
+				}
+
+
+				cursor_points.push_back(from);
+				cursor_points.push_back(to);
+
+
+			}
+
+			ADD_VTX(0,cs*1.5,0);
+			cursor_points.push_back(Vector3());
+
+		} else {
+
+
+			const int points = 32;
+
+			for(int i=0;i<points;i++) {
+
+				float s = ll+i*(Math_PI*2.0)/points;
+				float n = ll+(i+1)*(Math_PI*2.0)/points;
+
+//				Vector3 from=Vector3(0,Math::cos(s),-Math::sin(s) )*cs;
+//				Vector3 to=Vector3( 0,Math::cos(n),-Math::sin(n) )*cs;
+
+				Vector3 from;
+				SET_VTX(from,0, Math::cos(s), -Math::sin(s) );
+				from*=cs;
+				Vector3 to;
+				SET_VTX(to,0,Math::cos(n),  -Math::sin(n));
+				to*=cs;
+
+				cursor_points.push_back(from);
+				cursor_points.push_back(to);
+
+			}
+
+		}
+	}
+
+#undef ADD_VTX
+#undef SET_VTX
+
+	add_collision_segments(cursor_points);
+	add_lines(cursor_points,SpatialEditorGizmos::singleton->joint_material);
+
+}
+
+
+Generic6DOFJointSpatialGizmo::Generic6DOFJointSpatialGizmo(Generic6DOFJoint* p_p3d) {
+
+	p3d=p_p3d;
+	set_spatial_node(p3d);
+}
+
+///////
+///
+////
+
+
 SpatialEditorGizmos *SpatialEditorGizmos::singleton=NULL;
 
 Ref<SpatialEditorGizmo> SpatialEditorGizmos::get_gizmo(Spatial *p_spatial) {
@@ -2066,6 +2906,12 @@ Ref<SpatialEditorGizmo> SpatialEditorGizmos::get_gizmo(Spatial *p_spatial) {
 		return misg;
 	}
 
+	if (p_spatial->cast_to<NavigationMeshInstance>()) {
+
+		Ref<NavigationMeshSpatialGizmo> misg = memnew( NavigationMeshSpatialGizmo(p_spatial->cast_to<NavigationMeshInstance>()) );
+		return misg;
+	}
+
 	if (p_spatial->cast_to<RayCast>()) {
 
 		Ref<RayCastSpatialGizmo> misg = memnew( RayCastSpatialGizmo(p_spatial->cast_to<RayCast>()) );
@@ -2103,18 +2949,74 @@ Ref<SpatialEditorGizmo> SpatialEditorGizmos::get_gizmo(Spatial *p_spatial) {
 		return misg;
 	}
 
-	if (p_spatial->cast_to<EditableShape>()) {
+	if (p_spatial->cast_to<VehicleWheel>()) {
 
-		Ref<EditableShapeSpatialGizmo> misg = memnew( EditableShapeSpatialGizmo(p_spatial->cast_to<EditableShape>()) );
+		Ref<VehicleWheelSpatialGizmo> misg = memnew( VehicleWheelSpatialGizmo(p_spatial->cast_to<VehicleWheel>()) );
 		return misg;
 	}
-	if (p_spatial->cast_to<CarWheel>()) {
+	if (p_spatial->cast_to<PinJoint>()) {
 
-		Ref<CarWheelSpatialGizmo> misg = memnew( CarWheelSpatialGizmo(p_spatial->cast_to<CarWheel>()) );
+		Ref<PinJointSpatialGizmo> misg = memnew( PinJointSpatialGizmo(p_spatial->cast_to<PinJoint>()) );
 		return misg;
 	}
+
+	if (p_spatial->cast_to<HingeJoint>()) {
+
+		Ref<HingeJointSpatialGizmo> misg = memnew( HingeJointSpatialGizmo(p_spatial->cast_to<HingeJoint>()) );
+		return misg;
+	}
+
+	if (p_spatial->cast_to<SliderJoint>()) {
+
+		Ref<SliderJointSpatialGizmo> misg = memnew( SliderJointSpatialGizmo(p_spatial->cast_to<SliderJoint>()) );
+		return misg;
+	}
+
+	if (p_spatial->cast_to<ConeTwistJoint>()) {
+
+		Ref<ConeTwistJointSpatialGizmo> misg = memnew( ConeTwistJointSpatialGizmo(p_spatial->cast_to<ConeTwistJoint>()) );
+		return misg;
+	}
+
+	if (p_spatial->cast_to<Generic6DOFJoint>()) {
+
+		Ref<Generic6DOFJointSpatialGizmo> misg = memnew( Generic6DOFJointSpatialGizmo(p_spatial->cast_to<Generic6DOFJoint>()) );
+		return misg;
+	}
+
+	if (p_spatial->cast_to<CollisionPolygon>()) {
+
+		Ref<CollisionPolygonSpatialGizmo> misg = memnew( CollisionPolygonSpatialGizmo(p_spatial->cast_to<CollisionPolygon>()) );
+		return misg;
+	}
+
 
 	return Ref<SpatialEditorGizmo>();
+}
+
+
+Ref<FixedMaterial> SpatialEditorGizmos::create_line_material(const Color& p_base_color) {
+
+	Ref<FixedMaterial> line_material = Ref<FixedMaterial>( memnew( FixedMaterial ));
+	line_material->set_flag(Material::FLAG_UNSHADED, true);
+	line_material->set_line_width(3.0);
+	line_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
+	line_material->set_fixed_flag(FixedMaterial::FLAG_USE_COLOR_ARRAY, true);
+	line_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,p_base_color);
+
+	return line_material;
+
+}
+
+Ref<FixedMaterial> SpatialEditorGizmos::create_solid_material(const Color& p_base_color) {
+
+	Ref<FixedMaterial> line_material = Ref<FixedMaterial>( memnew( FixedMaterial ));
+	line_material->set_flag(Material::FLAG_UNSHADED, true);
+	line_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
+	line_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,p_base_color);
+
+	return line_material;
+
 }
 
 SpatialEditorGizmos::SpatialEditorGizmos() {
@@ -2133,20 +3035,14 @@ SpatialEditorGizmos::SpatialEditorGizmos() {
 	handle2_material->set_texture(FixedMaterial::PARAM_DIFFUSE,handle_t);
 	handle2_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(1,1,1));
 	handle2_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
+	handle2_material->set_fixed_flag(FixedMaterial::FLAG_USE_COLOR_ARRAY, true);
 
-	handle2_secondary_material = handle2_material->duplicate();
-	handle2_secondary_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(1,1,1,.5));
-
-	light_material = Ref<FixedMaterial>( memnew( FixedMaterial ));
-	light_material->set_flag(Material::FLAG_UNSHADED, true);
-	light_material->set_line_width(3.0);
-	light_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
-	light_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(1,1,0.2,0.3));
+	light_material = create_line_material(Color(1,1,0.2));
 
 	light_material_omni_icon = Ref<FixedMaterial>( memnew( FixedMaterial ));
 	light_material_omni_icon->set_flag(Material::FLAG_UNSHADED, true);
 	light_material_omni_icon->set_flag(Material::FLAG_DOUBLE_SIDED, true);
-	light_material_omni_icon->set_hint(Material::HINT_NO_DEPTH_DRAW, true);
+	light_material_omni_icon->set_depth_draw_mode(Material::DEPTH_DRAW_NEVER);
 	light_material_omni_icon->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
 	light_material_omni_icon->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(1,1,1,0.9));
 	light_material_omni_icon->set_texture(FixedMaterial::PARAM_DIFFUSE,SpatialEditor::get_singleton()->get_icon("GizmoLight","EditorIcons"));
@@ -2155,31 +3051,29 @@ SpatialEditorGizmos::SpatialEditorGizmos() {
 	light_material_directional_icon = Ref<FixedMaterial>( memnew( FixedMaterial ));
 	light_material_directional_icon->set_flag(Material::FLAG_UNSHADED, true);
 	light_material_directional_icon->set_flag(Material::FLAG_DOUBLE_SIDED, true);
-	light_material_directional_icon->set_hint(Material::HINT_NO_DEPTH_DRAW, true);
+	light_material_directional_icon->set_depth_draw_mode(Material::DEPTH_DRAW_NEVER);
 	light_material_directional_icon->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
 	light_material_directional_icon->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(1,1,1,0.9));
 	light_material_directional_icon->set_texture(FixedMaterial::PARAM_DIFFUSE,SpatialEditor::get_singleton()->get_icon("GizmoDirectionalLight","EditorIcons"));
 
-	camera_material = Ref<FixedMaterial>( memnew( FixedMaterial ));
-	camera_material->set_parameter( FixedMaterial::PARAM_DIFFUSE,Color(1.0,0.5,1.0,0.7) );
-	camera_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
-	camera_material->set_line_width(3);
-	camera_material->set_flag(Material::FLAG_DOUBLE_SIDED,true);
-	camera_material->set_flag(Material::FLAG_UNSHADED,true);
-	camera_material->set_hint(Material::HINT_NO_DEPTH_DRAW,true);
+	camera_material = create_line_material(Color(1.0,0.5,1.0));
 
 
+	navmesh_edge_material = create_line_material(Color(0.1,0.8,1.0));
+	navmesh_solid_material = create_solid_material(Color(0.1,0.8,1.0,0.4));
+	navmesh_edge_material->set_fixed_flag(FixedMaterial::FLAG_USE_COLOR_ARRAY, false);
+	navmesh_solid_material->set_flag(Material::FLAG_DOUBLE_SIDED,true);
 
-	skeleton_material=Ref<FixedMaterial>( memnew( FixedMaterial ));
+	navmesh_edge_material_disabled = create_line_material(Color(1.0,0.8,0.1));
+	navmesh_solid_material_disabled = create_solid_material(Color(1.0,0.8,0.1,0.4));
+	navmesh_edge_material_disabled->set_fixed_flag(FixedMaterial::FLAG_USE_COLOR_ARRAY, false);
+	navmesh_solid_material_disabled->set_flag(Material::FLAG_DOUBLE_SIDED,true);
 
-	//skeleton_material->set_parameter( FixedMaterial::PARAM_DIFFUSE,Color(0.6,1.0,0.3,0.1) );
-	skeleton_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
-	skeleton_material->set_fixed_flag(FixedMaterial::FLAG_USE_COLOR_ARRAY, true);
-	skeleton_material->set_line_width(3);
+	skeleton_material = create_line_material(Color(0.6,1.0,0.3));
 	skeleton_material->set_flag(Material::FLAG_DOUBLE_SIDED,true);
 	skeleton_material->set_flag(Material::FLAG_UNSHADED,true);
 	skeleton_material->set_flag(Material::FLAG_ONTOP,true);
-	skeleton_material->set_hint(Material::HINT_NO_DEPTH_DRAW,true);
+	skeleton_material->set_depth_draw_mode(Material::DEPTH_DRAW_NEVER);
 
 	//position 3D Shared mesh
 
@@ -2219,58 +3113,22 @@ SpatialEditorGizmos::SpatialEditorGizmos() {
 	sample_player_icon = Ref<FixedMaterial>( memnew( FixedMaterial ));
 	sample_player_icon->set_flag(Material::FLAG_UNSHADED, true);
 	sample_player_icon->set_flag(Material::FLAG_DOUBLE_SIDED, true);
-	sample_player_icon->set_hint(Material::HINT_NO_DEPTH_DRAW, true);
+	sample_player_icon->set_depth_draw_mode(Material::DEPTH_DRAW_NEVER);
 	sample_player_icon->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
 	sample_player_icon->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(1,1,1,0.9));
 	sample_player_icon->set_texture(FixedMaterial::PARAM_DIFFUSE,SpatialEditor::get_singleton()->get_icon("GizmoSpatialSamplePlayer","EditorIcons"));
 
-	room_material = Ref<FixedMaterial>( memnew( FixedMaterial ));
-	room_material->set_flag(Material::FLAG_UNSHADED, true);
-	room_material->set_flag(Material::FLAG_DOUBLE_SIDED, true);
-	//room_material->set_hint(Material::HINT_NO_DEPTH_DRAW, true);
-	room_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
-	room_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(1.0,0.6,0.9,0.8));
-	room_material->set_line_width(3);
-
-	portal_material = Ref<FixedMaterial>( memnew( FixedMaterial ));
-	portal_material->set_flag(Material::FLAG_UNSHADED, true);
-	portal_material->set_flag(Material::FLAG_DOUBLE_SIDED, true);
-	//portal_material->set_hint(Material::HINT_NO_DEPTH_DRAW, true);
-	portal_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
-	portal_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(1.0,0.8,0.6,0.8));
-	portal_material->set_line_width(3);
-
-
-	raycast_material = Ref<FixedMaterial>( memnew( FixedMaterial ));
-	raycast_material->set_flag(Material::FLAG_UNSHADED, true);
-	raycast_material->set_flag(Material::FLAG_DOUBLE_SIDED, true);
-	//raycast_material->set_hint(Material::HINT_NO_DEPTH_DRAW, true);
-	raycast_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
-	raycast_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(1.0,0.8,0.6,0.8));
-	raycast_material->set_line_width(3);
-
-	car_wheel_material = Ref<FixedMaterial>( memnew( FixedMaterial ));
-	car_wheel_material->set_flag(Material::FLAG_UNSHADED, true);
-	car_wheel_material->set_flag(Material::FLAG_DOUBLE_SIDED, true);
-	//car_wheel_material->set_hint(Material::HINT_NO_DEPTH_DRAW, true);
-	car_wheel_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
-	car_wheel_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(0.6,0.8,1.0,0.8));
-	car_wheel_material->set_line_width(3);
-
-
-
-	visibility_notifier_material = Ref<FixedMaterial>( memnew( FixedMaterial ));
-	visibility_notifier_material->set_flag(Material::FLAG_UNSHADED, true);
-	visibility_notifier_material->set_flag(Material::FLAG_DOUBLE_SIDED, true);
-	//visibility_notifier_material->set_hint(Material::HINT_NO_DEPTH_DRAW, true);
-	visibility_notifier_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
-	visibility_notifier_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(1.0,0.5,1.0,0.8));
-	visibility_notifier_material->set_line_width(3);
+	room_material = create_line_material(Color(1.0,0.6,0.9));
+	portal_material = create_line_material(Color(1.0,0.8,0.6));
+	raycast_material = create_line_material(Color(1.0,0.8,0.6));
+	car_wheel_material = create_line_material(Color(0.6,0.8,1.0));
+	visibility_notifier_material = create_line_material(Color(1.0,0.5,1.0));
+	joint_material = create_line_material(Color(0.6,0.8,1.0));
 
 	stream_player_icon = Ref<FixedMaterial>( memnew( FixedMaterial ));
 	stream_player_icon->set_flag(Material::FLAG_UNSHADED, true);
 	stream_player_icon->set_flag(Material::FLAG_DOUBLE_SIDED, true);
-	stream_player_icon->set_hint(Material::HINT_NO_DEPTH_DRAW, true);
+	stream_player_icon->set_depth_draw_mode(Material::DEPTH_DRAW_NEVER);
 	stream_player_icon->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
 	stream_player_icon->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(1,1,1,0.9));
 	stream_player_icon->set_texture(FixedMaterial::PARAM_DIFFUSE,SpatialEditor::get_singleton()->get_icon("GizmoSpatialStreamPlayer","EditorIcons"));
@@ -2278,7 +3136,7 @@ SpatialEditorGizmos::SpatialEditorGizmos() {
 	visibility_notifier_icon = Ref<FixedMaterial>( memnew( FixedMaterial ));
 	visibility_notifier_icon->set_flag(Material::FLAG_UNSHADED, true);
 	visibility_notifier_icon->set_flag(Material::FLAG_DOUBLE_SIDED, true);
-	visibility_notifier_icon->set_hint(Material::HINT_NO_DEPTH_DRAW, true);
+	visibility_notifier_icon->set_depth_draw_mode(Material::DEPTH_DRAW_NEVER);
 	visibility_notifier_icon->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
 	visibility_notifier_icon->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(1,1,1,0.9));
 	visibility_notifier_icon->set_texture(FixedMaterial::PARAM_DIFFUSE,SpatialEditor::get_singleton()->get_icon("Visible","EditorIcons"));
@@ -2326,11 +3184,8 @@ SpatialEditorGizmos::SpatialEditorGizmos() {
 		test_cube_tm->create(vertices);
 	}
 
+	shape_material = create_line_material(Color(0.2,1,1.0));
 
-	shape_material = Ref<FixedMaterial>( memnew( FixedMaterial ));
-	shape_material->set_flag(Material::FLAG_UNSHADED, true);
-	shape_material->set_line_width(3.0);
-	shape_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
-	shape_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,Color(0.2,1,1.0,0.3));
 
 }
+

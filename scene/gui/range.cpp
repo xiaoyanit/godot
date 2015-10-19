@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -42,7 +42,7 @@ void Range::Shared::emit_value_changed() {
 
 	for (Set<Range*>::Element *E=owners.front();E;E=E->next()) {
 		Range *r=E->get();
-		if (!r->is_inside_scene())
+		if (!r->is_inside_tree())
 			continue;
 		r->_value_changed_notify();
 	}
@@ -59,7 +59,7 @@ void Range::Shared::emit_changed() {
 
 	for (Set<Range*>::Element *E=owners.front();E;E=E->next()) {
 		Range *r=E->get();
-		if (!r->is_inside_scene())
+		if (!r->is_inside_tree())
 			continue;
 		r->_changed_notify();
 	}

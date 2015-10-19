@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -29,6 +29,7 @@
 #include "mesh.h"
 #include "scene/resources/concave_polygon_shape.h"
 #include "scene/resources/convex_polygon_shape.h"
+#include "surface_tool.h"
 
 static const char*_array_name[]={
 	"vertex_array",
@@ -92,10 +93,23 @@ bool Mesh::_set(const StringName& p_name, const Variant& p_value) {
 		return true;
 	}
 
-	if (sname.begins_with("materials/")) {
+	if (sname.begins_with("surface_")) {
 
-		int idx=sname.get_slice("/",1).to_int()-1;
-		surface_set_material(idx,p_value);
+		int sl=sname.find("/");
+		if (sl==-1)
+			return false;
+		int idx=sname.substr(8,sl-8).to_int()-1;
+		String what = sname.get_slicec('/',1);
+		if (what=="material")
+			surface_set_material(idx,p_value);
+		else if (what=="name")
+			surface_set_name(idx,p_value);
+		return true;
+	}
+
+	if (sname=="custom_aabb/custom_aabb") {
+
+		set_custom_aabb(p_value);
 		return true;
 	}
 
@@ -103,8 +117,8 @@ bool Mesh::_set(const StringName& p_name, const Variant& p_value) {
 		return false;
 
 
-	int idx=sname.get_slice("/",1).to_int();
-	String what=sname.get_slice("/",2);
+	int idx=sname.get_slicec('/',1).to_int();
+	String what=sname.get_slicec('/',2);
 
 	if (idx==surfaces.size()) {
 
@@ -160,17 +174,28 @@ bool Mesh::_get(const StringName& p_name,Variant &r_ret) const {
 
 		r_ret = get_morph_target_mode();
 		return true;
-	} else if (sname.begins_with("materials/")) {
+	} else if (sname.begins_with("surface_")) {
 
-		int idx=sname.get_slice("/",1).to_int()-1;
-		r_ret=surface_get_material(idx);
+		int sl=sname.find("/");
+		if (sl==-1)
+			return false;
+		int idx=sname.substr(8,sl-8).to_int()-1;
+		String what = sname.get_slicec('/',1);
+		if (what=="material")
+			r_ret=surface_get_material(idx);
+		else if (what=="name")
+			r_ret=surface_get_name(idx);
+		return true;
+	} else if (sname=="custom_aabb/custom_aabb") {
+
+		r_ret=custom_aabb;
 		return true;
 
 	} else if (!sname.begins_with("surfaces"))
 		return false;
 
 
-	int idx=sname.get_slice("/",1).to_int();
+	int idx=sname.get_slicec('/',1).to_int();
 	ERR_FAIL_INDEX_V(idx,surfaces.size(),false);
 
 	Dictionary d;
@@ -200,8 +225,12 @@ void Mesh::_get_property_list( List<PropertyInfo> *p_list) const {
 	for (int i=0;i<surfaces.size();i++) {
 		
 		p_list->push_back( PropertyInfo( Variant::DICTIONARY,"surfaces/"+itos(i), PROPERTY_HINT_NONE,"",PROPERTY_USAGE_NOEDITOR ) );
-		p_list->push_back( PropertyInfo( Variant::OBJECT,"materials/"+itos(i+1), PROPERTY_HINT_RESOURCE_TYPE,"Material",PROPERTY_USAGE_EDITOR ) );
+		p_list->push_back( PropertyInfo( Variant::STRING,"surface_"+itos(i+1)+"/name", PROPERTY_HINT_NONE,"",PROPERTY_USAGE_EDITOR ) );
+		p_list->push_back( PropertyInfo( Variant::OBJECT,"surface_"+itos(i+1)+"/material", PROPERTY_HINT_RESOURCE_TYPE,"Material",PROPERTY_USAGE_EDITOR ) );
 	}
+
+	p_list->push_back( PropertyInfo( Variant::_AABB,"custom_aabb/custom_aabb" ) );
+
 }
 
 
@@ -473,6 +502,19 @@ AABB Mesh::get_aabb() const {
 	return aabb;
 }
 
+
+void Mesh::set_custom_aabb(const AABB& p_custom) {
+
+	custom_aabb=p_custom;
+	VS::get_singleton()->mesh_set_custom_aabb(mesh,custom_aabb);
+}
+
+AABB Mesh::get_custom_aabb() const {
+
+	return custom_aabb;
+}
+
+
 DVector<Face3> Mesh::get_faces() const {
 
 
@@ -607,6 +649,30 @@ void Mesh::center_geometry() {
 
 }
 
+void Mesh::regen_normalmaps() {
+
+
+	Vector< Ref<SurfaceTool> > surfs;
+	for(int i=0;i<get_surface_count();i++) {
+
+		Ref<SurfaceTool> st = memnew( SurfaceTool );
+		st->create_from(Ref<Mesh>(this),i);
+		surfs.push_back(st);
+	}
+
+	while (get_surface_count()) {
+		surface_remove(0);
+	}
+
+	for(int i=0;i<surfs.size();i++) {
+
+		surfs[i]->generate_tangents();
+		surfs[i]->commit(Ref<Mesh>(this));
+	}
+}
+
+
+
 Ref<TriangleMesh> Mesh::generate_triangle_mesh() const {
 
 	if (triangle_mesh.is_valid())
@@ -677,6 +743,225 @@ Ref<TriangleMesh> Mesh::generate_triangle_mesh() const {
 
 }
 
+Ref<Mesh> Mesh::create_outline(float p_margin) const {
+
+
+	Array arrays;
+	int index_accum=0;
+	for(int i=0;i<get_surface_count();i++) {
+
+		if (surface_get_primitive_type(i)!=PRIMITIVE_TRIANGLES)
+			continue;
+
+		Array a = surface_get_arrays(i);
+		int vcount=0;
+
+		if (i==0) {
+			arrays=a;
+			DVector<Vector3> v=a[ARRAY_VERTEX];
+			index_accum+=v.size();
+		} else {
+
+			for(int j=0;j<arrays.size();j++) {
+
+				if (arrays[j].get_type()==Variant::NIL || a[j].get_type()==Variant::NIL) {
+					//mismatch, do not use
+					arrays[j]=Variant();
+					continue;
+				}
+
+				switch(j) {
+
+					case ARRAY_VERTEX:
+					case ARRAY_NORMAL:  {
+
+						DVector<Vector3> dst = arrays[j];
+						DVector<Vector3> src = a[j];
+						if (j==ARRAY_VERTEX)
+							vcount=src.size();
+						if (dst.size()==0 || src.size()==0) {
+							arrays[j]=Variant();
+							continue;
+						}
+						dst.append_array(src);
+						arrays[j]=dst;
+					} break;
+					case ARRAY_TANGENT:
+					case ARRAY_BONES:
+					case ARRAY_WEIGHTS: {
+
+						DVector<real_t> dst = arrays[j];
+						DVector<real_t> src = a[j];
+						if (dst.size()==0 || src.size()==0) {
+							arrays[j]=Variant();
+							continue;
+						}
+						dst.append_array(src);
+						arrays[j]=dst;
+
+					} break;
+					case ARRAY_COLOR: {
+						DVector<Color> dst = arrays[j];
+						DVector<Color> src = a[j];
+						if (dst.size()==0 || src.size()==0) {
+							arrays[j]=Variant();
+							continue;
+						}
+						dst.append_array(src);
+						arrays[j]=dst;
+
+					} break;
+					case ARRAY_TEX_UV:
+					case ARRAY_TEX_UV2: {
+						DVector<Vector2> dst = arrays[j];
+						DVector<Vector2> src = a[j];
+						if (dst.size()==0 || src.size()==0) {
+							arrays[j]=Variant();
+							continue;
+						}
+						dst.append_array(src);
+						arrays[j]=dst;
+
+					} break;
+					case ARRAY_INDEX: {
+						DVector<int> dst = arrays[j];
+						DVector<int> src = a[j];
+						if (dst.size()==0 || src.size()==0) {
+							arrays[j]=Variant();
+							continue;
+						}
+						{
+							int ss = src.size();
+							DVector<int>::Write w = src.write();
+							for(int k=0;k<ss;k++) {
+								w[k]+=index_accum;
+							}
+
+						}
+						dst.append_array(src);
+						arrays[j]=dst;
+						index_accum+=vcount;
+
+					} break;
+
+				}
+			}
+		}
+	}
+
+	{
+		int tc=0;
+		DVector<int>::Write ir;
+		DVector<int> indices =arrays[ARRAY_INDEX];
+		bool has_indices=false;
+		DVector<Vector3> vertices =arrays[ARRAY_VERTEX];
+		int vc = vertices.size();
+		ERR_FAIL_COND_V(!vc,Ref<Mesh>());
+		DVector<Vector3>::Write r=vertices.write();
+
+
+		if (indices.size()) {
+			vc=indices.size();
+			ir=indices.write();
+			has_indices=true;
+		}
+
+		Map<Vector3,Vector3> normal_accum;
+
+		//fill normals with triangle normals
+		for(int i=0;i<vc;i+=3) {
+
+
+			Vector3 t[3];
+
+			if (has_indices) {
+				t[0]=r[ir[i+0]];
+				t[1]=r[ir[i+1]];
+				t[2]=r[ir[i+2]];
+			} else {
+				t[0]=r[i+0];
+				t[1]=r[i+1];
+				t[2]=r[i+2];
+			}
+
+			Vector3 n = Plane(t[0],t[1],t[2]).normal;
+
+			for(int j=0;j<3;j++) {
+
+				Map<Vector3,Vector3>::Element *E=normal_accum.find(t[j]);
+				if (!E) {
+					normal_accum[t[j]]=n;
+				} else {
+					float d = n.dot(E->get());
+					if (d<1.0)
+						E->get()+=n*(1.0-d);
+					//E->get()+=n;
+				}
+			}
+		}
+
+		//normalize
+
+		for (Map<Vector3,Vector3>::Element *E=normal_accum.front();E;E=E->next()) {
+			E->get().normalize();
+		}
+
+
+		//displace normals
+		int vc2 = vertices.size();
+
+		for(int i=0;i<vc2;i++) {
+
+
+			Vector3 t=r[i];
+
+			Map<Vector3,Vector3>::Element *E=normal_accum.find(t);
+			ERR_CONTINUE(!E);
+
+			t+=E->get()*p_margin;
+			r[i]=t;
+		}
+
+		r = DVector<Vector3>::Write();
+		arrays[ARRAY_VERTEX]=vertices;
+
+		if (!has_indices) {
+
+			DVector<int> new_indices;
+			new_indices.resize(vertices.size());
+			DVector<int>::Write iw = new_indices.write();
+
+			for(int j=0;j<vc2;j+=3) {
+
+				iw[j]=j;
+				iw[j+1]=j+2;
+				iw[j+2]=j+1;
+			}
+
+			iw=DVector<int>::Write();
+			arrays[ARRAY_INDEX]=new_indices;
+
+		} else {
+
+			for(int j=0;j<vc;j+=3) {
+
+				SWAP(ir[j+1],ir[j+2]);
+			}
+			ir=DVector<int>::Write();
+			arrays[ARRAY_INDEX]=indices;
+
+		}
+	}
+
+
+
+
+	Ref<Mesh> newmesh = memnew( Mesh );
+	newmesh->add_surface(PRIMITIVE_TRIANGLES,arrays);
+	return newmesh;
+}
+
+
 void Mesh::_bind_methods() {
 
 	ObjectTypeDB::bind_method(_MD("add_morph_target","name"),&Mesh::add_morph_target);
@@ -699,7 +984,11 @@ void Mesh::_bind_methods() {
 	ObjectTypeDB::bind_method(_MD("surface_get_name","surf_idx"),&Mesh::surface_get_name);
 	ObjectTypeDB::bind_method(_MD("center_geometry"),&Mesh::center_geometry);
 	ObjectTypeDB::set_method_flags(get_type_static(),_SCS("center_geometry"),METHOD_FLAGS_DEFAULT|METHOD_FLAG_EDITOR);
+	ObjectTypeDB::bind_method(_MD("regen_normalmaps"),&Mesh::regen_normalmaps);
+	ObjectTypeDB::set_method_flags(get_type_static(),_SCS("regen_normalmaps"),METHOD_FLAGS_DEFAULT|METHOD_FLAG_EDITOR);
 
+	ObjectTypeDB::bind_method(_MD("set_custom_aabb","aabb"),&Mesh::set_custom_aabb);
+	ObjectTypeDB::bind_method(_MD("get_custom_aabb"),&Mesh::get_custom_aabb);
 
 
 	BIND_CONSTANT( NO_INDEX_ARRAY );

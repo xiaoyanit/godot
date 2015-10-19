@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -83,7 +83,8 @@ bool AnimationTreePlayer::_set(const StringName& p_name, const Variant& p_value)
 
 		ERR_FAIL_COND_V(nt==NODE_MAX,false);
 
-		add_node(nt,id);
+		if (nt!=NODE_OUTPUT)
+			add_node(nt,id);
 		node_set_pos(id,pos);
 
 
@@ -1046,8 +1047,9 @@ void AnimationTreePlayer::timescale_node_set_scale(const StringName& p_node,floa
 void AnimationTreePlayer::timeseek_node_seek(const StringName& p_node,float p_pos) {
 
 
-//	GET_NODE( NODE_TIMESEEK, TimeSeekNode );
-//hmm
+	GET_NODE( NODE_TIMESEEK, TimeSeekNode );
+	n->seek_pos=p_pos;
+
 }
 void AnimationTreePlayer::transition_node_set_input_count(const StringName& p_node, int p_inputs) {
 
@@ -1585,7 +1587,7 @@ void AnimationTreePlayer::_update_sources() {
 
 	if (master==NodePath())
 		return;
-	if (!is_inside_scene())
+	if (!is_inside_tree())
 		return;
 
 	Node *m = get_node(master);
@@ -1661,7 +1663,7 @@ void AnimationTreePlayer::_bind_methods() {
 
 	ObjectTypeDB::bind_method(_MD("node_get_type","id"),&AnimationTreePlayer::node_get_type);
 	ObjectTypeDB::bind_method(_MD("node_get_input_count","id"),&AnimationTreePlayer::node_get_input_count);
-	ObjectTypeDB::bind_method(_MD("node_get_input_sourcre","id","idx"),&AnimationTreePlayer::node_get_input_source);
+	ObjectTypeDB::bind_method(_MD("node_get_input_source","id","idx"),&AnimationTreePlayer::node_get_input_source);
 
 	ObjectTypeDB::bind_method(_MD("animation_node_set_animation","id","animation:Animation"),&AnimationTreePlayer::animation_node_set_animation);
 	ObjectTypeDB::bind_method(_MD("animation_node_get_animation:Animation","id"),&AnimationTreePlayer::animation_node_get_animation);
@@ -1736,7 +1738,13 @@ void AnimationTreePlayer::_bind_methods() {
 	ObjectTypeDB::bind_method(_MD("set_base_path","path"),&AnimationTreePlayer::set_base_path);
 	ObjectTypeDB::bind_method(_MD("get_base_path"),&AnimationTreePlayer::get_base_path);
 
+	ObjectTypeDB::bind_method(_MD("set_master_player","nodepath"),&AnimationTreePlayer::set_master_player);
+	ObjectTypeDB::bind_method(_MD("get_master_player"),&AnimationTreePlayer::get_master_player);
+
 	ObjectTypeDB::bind_method(_MD("get_node_list"),&AnimationTreePlayer::_get_node_list);
+
+
+
 
 	ObjectTypeDB::bind_method(_MD("reset"),&AnimationTreePlayer::reset);
 

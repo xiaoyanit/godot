@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -58,7 +58,7 @@ class AnimationCache : public Object {
 	bool cache_dirty;
 	bool cache_valid;
 
-	void _node_exit_scene(Node *p_node);
+	void _node_exit_tree(Node *p_node);
 
 	void _clear_cache();
 	void _update_cache();

@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,7 +32,7 @@
 
 void SamplePlayerEditor::_notification(int p_what) {
 
-	if (p_what==NOTIFICATION_ENTER_SCENE) {
+	if (p_what==NOTIFICATION_ENTER_TREE) {
 		play->set_icon( get_icon("Play","EditorIcons") );
 		stop->set_icon( get_icon("Stop","EditorIcons") );
 	}
@@ -64,6 +64,8 @@ void SamplePlayerEditor::_play() {
 		return;
 
 	node->call("play",samples->get_item_text( samples->get_selected() ));
+	stop->set_pressed(false);
+	play->set_pressed(true);
 }
 
 void SamplePlayerEditor::_stop() {
@@ -74,6 +76,9 @@ void SamplePlayerEditor::_stop() {
 		return;
 
 	node->call("stop_all");
+	print_line("STOP ALL!!");
+	stop->set_pressed(true);
+	play->set_pressed(false);
 
 }
 
@@ -89,6 +94,7 @@ void SamplePlayerEditor::_update_sample_library() {
 
 	List<StringName> samplenames;
 	sl->get_sample_list(&samplenames);
+	samplenames.sort_custom<StringName::AlphCompare>();
 	for(List<StringName>::Element *E=samplenames.front();E;E=E->next()) {
 		samples->add_item(E->get());
 	}

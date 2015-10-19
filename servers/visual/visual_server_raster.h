@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -51,6 +51,7 @@ class VisualServerRaster : public VisualServer {
 		MAX_LIGHTS_CULLED=256,
 		MAX_ROOM_CULL=32,
 		MAX_EXTERIOR_PORTALS=128,
+		MAX_LIGHT_SAMPLERS=256,
 		INSTANCE_ROOMLESS_MASK=(1<<20)
 
 
@@ -84,10 +85,36 @@ class VisualServerRaster : public VisualServer {
 		Vector<Point2> shape;
 		Rect2 bounds;
 
+
 		Portal() { enabled=true; disable_distance=50; disable_color=Color(); connect_range=0.8; }
 	};
 
+	struct BakedLight {
 
+		Rasterizer::BakedLightData data;
+		DVector<int> sampler;
+		AABB octree_aabb;
+		Size2i octree_tex_size;
+		Size2i light_tex_size;
+
+	};
+
+	struct BakedLightSampler {
+
+		float params[BAKED_LIGHT_SAMPLER_MAX];
+		int resolution;
+		Vector<Vector3> dp_cache;
+
+		BakedLightSampler() {
+			params[BAKED_LIGHT_SAMPLER_STRENGTH]=1.0;
+			params[BAKED_LIGHT_SAMPLER_ATTENUATION]=1.0;
+			params[BAKED_LIGHT_SAMPLER_RADIUS]=1.0;
+			params[BAKED_LIGHT_SAMPLER_DETAIL_RATIO]=0.1;
+			resolution=16;
+		}
+	};
+
+	void _update_baked_light_sampler_dp_cache(BakedLightSampler * blsamp);
 	struct Camera  {
  
 		enum Type {
@@ -151,6 +178,7 @@ class VisualServerRaster : public VisualServer {
 		float extra_margin;
 
 
+
 		Rasterizer::InstanceData data;
 
 		
@@ -158,6 +186,9 @@ class VisualServerRaster : public VisualServer {
 		Set<Instance*> valid_auto_rooms;
 		Instance *room;
 		List<Instance*>::Element *RE;
+		Instance *baked_light;
+		List<Instance*>::Element *BLE;
+		Instance *sampled_light;
 		bool exterior;
 
 		uint64_t last_render_pass;
@@ -167,6 +198,8 @@ class VisualServerRaster : public VisualServer {
 		
 		InstanceSet lights;
 		bool light_cache_dirty;
+
+
 
 		struct RoomInfo {
 
@@ -205,6 +238,7 @@ class VisualServerRaster : public VisualServer {
 			uint64_t last_add_pass;
 			List<RID>::Element *D; // directional light in scenario
 			InstanceSet affected;
+			bool enabled;
 			float dtc; //distance to camera, used for sorting
 
 			
@@ -213,6 +247,31 @@ class VisualServerRaster : public VisualServer {
 				D=NULL;	
 				light_set_index=-1;
 				last_add_pass=0;
+				enabled=true;
+			}
+		};
+
+		struct BakedLightInfo {
+
+			BakedLight *baked_light;
+			Transform affine_inverse;
+			List<Instance*> owned_instances;
+		};
+
+		struct BakedLightSamplerInfo {
+
+			Set<Instance*> baked_lights;
+			Set<Instance*> owned_instances;
+			BakedLightSampler *sampler;
+			int resolution;
+			Vector<Color> light_bufer;
+			RID sampled_light;
+			uint64_t last_pass;
+			Transform xform; // viewspace normal to lightspace, might not use one.
+			BakedLightSamplerInfo() {
+				sampler=NULL;
+				last_pass=0;
+				resolution=0;
 			}
 		};
 		
@@ -226,6 +285,8 @@ class VisualServerRaster : public VisualServer {
 		LightInfo *light_info;
 		ParticlesInfo *particles_info;
 		PortalInfo * portal_info;
+		BakedLightInfo * baked_light_info;
+		BakedLightSamplerInfo * baked_light_sampler_info;
 
 
 		Instance() { 
@@ -244,6 +305,9 @@ class VisualServerRaster : public VisualServer {
 			data.depth_scale=false;
 			data.billboard=false;
 			data.billboard_y=false;
+			data.baked_light=NULL;
+			data.baked_light_octree_xform=NULL;
+			data.baked_lightmap_id=-1;
 			version=1;
 			room_info=NULL;
 			room=NULL;
@@ -255,6 +319,12 @@ class VisualServerRaster : public VisualServer {
 			draw_range_end=0;
 			extra_margin=0;
 			visible_in_all_rooms=false;
+
+			baked_light=NULL;
+			baked_light_info=NULL;
+			baked_light_sampler_info=NULL;
+			sampled_light=NULL;
+			BLE=NULL;
 
 			light_cache_dirty=true;
 
@@ -270,6 +340,8 @@ class VisualServerRaster : public VisualServer {
 				memdelete(room_info);
 			if (portal_info)
 				memdelete(portal_info);
+			if (baked_light_info)
+				memdelete(baked_light_info);
 		};
 	};
 	
@@ -290,6 +362,7 @@ class VisualServerRaster : public VisualServer {
 			
 		List<RID> directional_lights;
 		RID environment;
+		RID fallback_environment;
 		
 		Instance *dirty_instances;
 
@@ -298,143 +371,64 @@ class VisualServerRaster : public VisualServer {
 
 
 
-	
+	mutable RID_Owner<Rasterizer::CanvasItemMaterial> canvas_item_material_owner;
 
-	struct CanvasItem {
-		
-		struct Command {
-			
-			enum Type {
-				
-				TYPE_LINE,
-				TYPE_RECT,
-				TYPE_STYLE,
-				TYPE_PRIMITIVE,
-				TYPE_POLYGON,
-				TYPE_POLYGON_PTR,
-				TYPE_CIRCLE,
-				TYPE_TRANSFORM,
-				TYPE_BLEND_MODE,
-				TYPE_CLIP_IGNORE,
-			};
-			
-			Type type;
-		};
-		
-		struct CommandLine : public Command {
-			
-			Point2 from,to;
-			Color color;		
-			float width;
-			CommandLine() { type = TYPE_LINE; }
-		};
-		
-		struct CommandRect : public Command {
-			
-			Rect2 rect;
-			RID texture;
-			Color modulate;
-			Rect2 source;
-			uint8_t flags;
-			
-			CommandRect() { flags=0; type = TYPE_RECT; }
-		};
-			
-		struct CommandStyle : public Command {
-			
-			Rect2 rect;
-			RID texture;
-			float margin[4];
-			float draw_center;
-			Color color;
-			CommandStyle() { draw_center=true; type = TYPE_STYLE; }
-		};
-			
-		struct CommandPrimitive : public Command {
-			
-			Vector<Point2> points;
-			Vector<Point2> uvs;
-			Vector<Color> colors;
-			RID texture;
-			float width;
-			
-			CommandPrimitive() { type = TYPE_PRIMITIVE; width=1;}
-		};
+	struct CanvasItem : public Rasterizer::CanvasItem {
 
-		struct CommandPolygon : public Command {
-
-			Vector<int> indices;
-			Vector<Point2> points;
-			Vector<Point2> uvs;
-			Vector<Color> colors;
-			RID texture;
-			int count;
-
-			CommandPolygon() { type = TYPE_POLYGON; count = 0; }
-		};
-
-		struct CommandPolygonPtr : public Command {
-
-			const int* indices;
-			const Point2* points;
-			const Point2* uvs;
-			const Color* colors;
-			RID texture;
-			int count;
-
-			CommandPolygonPtr() { type = TYPE_POLYGON_PTR; count = 0; }
-		};
-
-		struct CommandCircle : public Command {
-
-			Point2 pos;
-			float radius;
-			Color color;
-			CommandCircle() { type = TYPE_CIRCLE; }
-		};
-
-		struct CommandTransform : public Command {
-
-			Matrix32 xform;
-			CommandTransform() { type = TYPE_TRANSFORM; }
-		};
-
-		struct CommandBlendMode : public Command {
-
-			MaterialBlendMode blend_mode;
-			CommandBlendMode() { type = TYPE_BLEND_MODE; blend_mode = MATERIAL_BLEND_MODE_MIX; };
-		};
-		struct CommandClipIgnore : public Command {
-
-			bool ignore;
-			CommandClipIgnore() { type = TYPE_CLIP_IGNORE; ignore=false; };
-		};
 
 		RID parent; // canvas it belongs to
 		List<CanvasItem*>::Element *E;
-		Matrix32 xform;
-		bool clip;
-		bool visible;
-		bool ontop;
+		RID viewport;
+		int z;
+		bool z_relative;
+		bool sort_y;
 		float opacity;
 		float self_opacity;
-		MaterialBlendMode blend_mode;
-		RID viewport;
+		bool use_parent_material;
 
-		mutable bool custom_rect;
-		mutable bool rect_dirty;
-		mutable Rect2 rect;
-		
-		Vector<Command*> commands;
+
 		Vector<CanvasItem*> child_items;
 
-		const Rect2& get_rect() const;
-		void clear() { for (int i=0;i<commands.size();i++) memdelete( commands[i] ); commands.clear(); clip=false; rect_dirty=true;};
-		CanvasItem() { clip=false; E=NULL; opacity=1; self_opacity=1; blend_mode=MATERIAL_BLEND_MODE_MIX; visible=true; rect_dirty=true; custom_rect=false; ontop=true; }
-		~CanvasItem() { clear(); }
+
+		CanvasItem() {
+			E=NULL;
+			z=0;
+			opacity=1;
+			self_opacity=1;
+			sort_y=false;
+			use_parent_material=false;
+			z_relative=true;
+		}
 	};
 
 
+	struct CanvasItemPtrSort {
+
+		_FORCE_INLINE_ bool operator()(const CanvasItem* p_left,const CanvasItem* p_right) const {
+
+			return p_left->xform.elements[2].y < p_right->xform.elements[2].y;
+		}
+	};
+
+	struct CanvasLightOccluder;
+
+	struct CanvasLightOccluderPolygon {
+
+		bool active;
+		Rect2 aabb;
+		CanvasOccluderPolygonCullMode cull_mode;
+		RID occluder;
+		Set<Rasterizer::CanvasLightOccluderInstance*> owners;
+
+		CanvasLightOccluderPolygon() { active=false; cull_mode=CANVAS_OCCLUDER_POLYGON_CULL_DISABLED; }
+	};
+
+
+	RID_Owner<CanvasLightOccluderPolygon> canvas_light_occluder_polygon_owner;
+
+	RID_Owner<Rasterizer::CanvasLightOccluderInstance> canvas_light_occluder_owner;
+
+	struct CanvasLight;
 
 	struct Canvas {
 
@@ -445,8 +439,11 @@ class VisualServerRaster : public VisualServer {
 			CanvasItem *item;
 		};
 
+		Set<Rasterizer::CanvasLight*> lights;
+		Set<Rasterizer::CanvasLightOccluderInstance*> occluders;
 
 		Vector<ChildItem> child_items;
+		Color modulate;
 
 		int find_item(CanvasItem *p_item) {
 			for(int i=0;i<child_items.size();i++) {
@@ -461,10 +458,12 @@ class VisualServerRaster : public VisualServer {
 				child_items.remove(idx);
 		}
 
-		Canvas() {  }
+		Canvas() { modulate=Color(1,1,1,1); }
 		
 	};
 
+
+	RID_Owner<Rasterizer::CanvasLight> canvas_light_owner;
 
 
 	struct Viewport {
@@ -488,6 +487,10 @@ class VisualServerRaster : public VisualServer {
 		bool transparent_bg;
 		bool queue_capture;
 		bool render_target_vflip;
+		bool render_target_clear_on_new_frame;
+		bool render_target_clear;
+		bool disable_environment;
+
 		Image capture;
 
 		bool rendered_in_prev_frame;
@@ -514,7 +517,7 @@ class VisualServerRaster : public VisualServer {
 
 		SelfList<Viewport> update_list;
 
-		Viewport() : update_list(this) { transparent_bg=false; render_target_update_mode=RENDER_TARGET_UPDATE_WHEN_VISIBLE; queue_capture=false; rendered_in_prev_frame=false; render_target_vflip=false;}
+		Viewport() : update_list(this) { transparent_bg=false; render_target_update_mode=RENDER_TARGET_UPDATE_WHEN_VISIBLE; queue_capture=false; rendered_in_prev_frame=false; render_target_vflip=false; render_target_clear_on_new_frame=true; render_target_clear=true; disable_environment=false; }
 	};
 
 	SelfList<Viewport>::List viewport_update_list;
@@ -564,12 +567,16 @@ class VisualServerRaster : public VisualServer {
 	int exterior_portal_cull_count;
 	bool exterior_visited;	
 
+	Instance *light_sampler_cull_result[MAX_LIGHT_SAMPLERS];
+	int light_samplers_culled;
+
 	Instance *room_cull_result[MAX_ROOM_CULL];
 	int room_cull_count;
 	bool room_cull_enabled;
 	bool light_discard_enabled;
 	bool shadows_enabled;
 	int black_margin[4];
+	RID black_image[4];
 
 	Vector<Vector3> aabb_random_points;
 	Vector<Vector3> transformed_aabb_random_points;
@@ -579,7 +586,7 @@ class VisualServerRaster : public VisualServer {
 	void _portal_disconnect(Instance *p_portal,bool p_cleanup=false);
 	void _portal_attempt_connect(Instance *p_portal);
 	void _dependency_queue_update(RID p_rid,bool p_update_aabb=false);
-	void _instance_queue_update(Instance *p_instance,bool p_update_aabb=false);	
+	_FORCE_INLINE_ void _instance_queue_update(Instance *p_instance,bool p_update_aabb=false);
 	void _update_instances();
 	void _update_instance_aabb(Instance *p_instance);
 	void _update_instance(Instance *p_instance);
@@ -596,7 +603,10 @@ class VisualServerRaster : public VisualServer {
 	
 	mutable RID_Owner<Room> room_owner;
 	mutable RID_Owner<Portal> portal_owner;
-	
+
+	mutable RID_Owner<BakedLight> baked_light_owner;
+	mutable RID_Owner<BakedLightSampler> baked_light_sampler_owner;
+
 	mutable RID_Owner<Camera> camera_owner;
 	mutable RID_Owner<Viewport> viewport_owner;
 	
@@ -607,7 +617,8 @@ class VisualServerRaster : public VisualServer {
 	mutable RID_Owner<CanvasItem> canvas_item_owner;
 
 	Map< RID, Set<RID> > instance_dependency_map;
-	
+	Map< RID, Set<Instance*> > skeleton_dependency_map;
+
 	
 	ViewportRect viewport_rect;
 	_FORCE_INLINE_ void _instance_draw(Instance *p_instance);
@@ -615,9 +626,14 @@ class VisualServerRaster : public VisualServer {
 	bool _test_portal_cull(Camera *p_camera, Instance *p_portal_from, Instance *p_portal_to);
 	void _cull_portal(Camera *p_camera, Instance *p_portal,Instance *p_from_portal);
 	void _cull_room(Camera *p_camera, Instance *p_room,Instance *p_from_portal=NULL);
+	void _process_sampled_light(const Transform &p_camera, Instance *p_sampled_light, bool p_linear_colorspace);
+
+	void _render_no_camera(Viewport *p_viewport,Camera *p_camera, Scenario *p_scenario);
 	void _render_camera(Viewport *p_viewport,Camera *p_camera, Scenario *p_scenario);
-	void _render_canvas_item(CanvasItem *p_canvas_item,const Matrix32& p_transform,const Rect2& p_clip_rect,float p_opacity);
-	void _render_canvas(Canvas *p_canvas,const Matrix32 &p_transform);
+	static void _render_canvas_item_viewport(VisualServer* p_self,void *p_vp,const Rect2& p_rect);
+	void _render_canvas_item_tree(CanvasItem *p_canvas_item, const Matrix32& p_transform, const Rect2& p_clip_rect, const Color &p_modulate, Rasterizer::CanvasLight *p_lights);
+	void _render_canvas_item(CanvasItem *p_canvas_item, const Matrix32& p_transform, const Rect2& p_clip_rect, float p_opacity, int p_z, Rasterizer::CanvasItem **z_list, Rasterizer::CanvasItem **z_last_list, CanvasItem *p_canvas_clip, CanvasItem *p_material_owner);
+	void _render_canvas(Canvas *p_canvas, const Matrix32 &p_transform, Rasterizer::CanvasLight *p_lights);
 	Vector<Vector3> _camera_generate_endpoints(Instance *p_light,Camera *p_camera,float p_range_min, float p_range_max);
 	Vector<Plane> _camera_generate_orthogonal_planes(Instance *p_light,Camera *p_camera,float p_range_min, float p_range_max);
 
@@ -630,6 +646,7 @@ class VisualServerRaster : public VisualServer {
 	int changes;
 	bool draw_extra_frame;
 
+	void _draw_viewport_camera(Viewport *p_viewport, bool p_ignore_camera);
 	void _draw_viewport(Viewport *p_viewport,int p_ofs_x, int p_ofs_y,int p_parent_w,int p_parent_h);
 	void _draw_viewports();
 	void _draw_cursors_and_margins();
@@ -659,11 +676,16 @@ public:
 	virtual void shader_set_mode(RID p_shader,ShaderMode p_mode);
 	virtual ShaderMode shader_get_mode(RID p_shader) const;
 
-	virtual void shader_set_code(RID p_shader, const String& p_vertex, const String& p_fragment,int p_vertex_ofs=0,int p_fragment_ofs=0);
+	virtual void shader_set_code(RID p_shader, const String& p_vertex, const String& p_fragment,const String& p_light,int p_vertex_ofs=0,int p_fragment_ofs=0,int p_light_ofs=0);
 	virtual String shader_get_vertex_code(RID p_shader) const;
 	virtual String shader_get_fragment_code(RID p_shader) const;
+	virtual String shader_get_light_code(RID p_shader) const;
 
 	virtual void shader_get_param_list(RID p_shader, List<PropertyInfo> *p_param_list) const;
+
+	virtual void shader_set_default_texture_param(RID p_shader, const StringName& p_name, RID p_texture);
+	virtual RID shader_get_default_texture_param(RID p_shader, const StringName& p_name) const;
+
 
 	/* COMMON MATERIAL API */
 
@@ -678,11 +700,8 @@ public:
 	virtual void material_set_flag(RID p_material, MaterialFlag p_flag,bool p_enabled);
 	virtual bool material_get_flag(RID p_material,MaterialFlag p_flag) const;
 
-	virtual void material_set_hint(RID p_material, MaterialHint p_hint,bool p_enabled);
-	virtual bool material_get_hint(RID p_material,MaterialHint p_hint) const;
-
-	virtual void material_set_shade_model(RID p_material, MaterialShadeModel p_model);
-	virtual MaterialShadeModel material_get_shade_model(RID p_material) const;
+	virtual void material_set_depth_draw_mode(RID p_material, MaterialDepthDrawMode p_mode);
+	virtual MaterialDepthDrawMode material_get_depth_draw_mode(RID p_material) const;
 
 	virtual void material_set_blend_mode(RID p_material,MaterialBlendMode p_mode);
 	virtual MaterialBlendMode material_get_blend_mode(RID p_material) const;
@@ -704,15 +723,15 @@ public:
 	virtual void fixed_material_set_texture(RID p_material,FixedMaterialParam p_parameter, RID p_texture);
 	virtual RID fixed_material_get_texture(RID p_material,FixedMaterialParam p_parameter) const;
 
-	virtual void fixed_material_set_detail_blend_mode(RID p_material,MaterialBlendMode p_mode);
-	virtual MaterialBlendMode fixed_material_get_detail_blend_mode(RID p_material) const;
-
-
 	virtual void fixed_material_set_texcoord_mode(RID p_material,FixedMaterialParam p_parameter, FixedMaterialTexCoordMode p_mode);
 	virtual FixedMaterialTexCoordMode fixed_material_get_texcoord_mode(RID p_material,FixedMaterialParam p_parameter) const;
 
+
 	virtual void fixed_material_set_uv_transform(RID p_material,const Transform& p_transform);
 	virtual Transform fixed_material_get_uv_transform(RID p_material) const;
+
+	virtual void fixed_material_set_light_shader(RID p_material,FixedMaterialLightShader p_shader);
+	virtual FixedMaterialLightShader fixed_material_get_light_shader(RID p_material) const;
 
 	virtual void fixed_material_set_point_size(RID p_material,float p_size);
 	virtual float fixed_material_get_point_size(RID p_material) const;
@@ -742,7 +761,11 @@ public:
 	
 	virtual void mesh_remove_surface(RID p_mesh,int p_index);
 	virtual int mesh_get_surface_count(RID p_mesh) const;
-		
+
+	virtual void mesh_set_custom_aabb(RID p_mesh,const AABB& p_aabb);
+	virtual AABB mesh_get_custom_aabb(RID p_mesh) const;
+
+	virtual void mesh_clear(RID p_mesh);
 
 	/* MULTIMESH API */
 
@@ -762,6 +785,21 @@ public:
 
 	virtual void multimesh_set_visible_instances(RID p_multimesh,int p_visible);
 	virtual int multimesh_get_visible_instances(RID p_multimesh) const;
+
+	/* IMMEDIATE API */
+
+	virtual RID immediate_create();
+	virtual void immediate_begin(RID p_immediate,PrimitiveType p_rimitive,RID p_texture=RID());
+	virtual void immediate_vertex(RID p_immediate,const Vector3& p_vertex);
+	virtual void immediate_normal(RID p_immediate,const Vector3& p_normal);
+	virtual void immediate_tangent(RID p_immediate,const Plane& p_tangent);
+	virtual void immediate_color(RID p_immediate,const Color& p_color);
+	virtual void immediate_uv(RID p_immediate, const Vector2& p_uv);
+	virtual void immediate_uv2(RID p_immediate,const Vector2& tex_uv);
+	virtual void immediate_end(RID p_immediate);
+	virtual void immediate_clear(RID p_immediate);
+	virtual void immediate_set_material(RID p_immediate,RID p_material);
+	virtual RID immediate_get_material(RID p_immediate) const;
 
 	
 	/* PARTICLES API */
@@ -884,8 +922,38 @@ public:
 	virtual void portal_set_connect_range(RID p_portal, float p_range);
 	virtual float portal_get_connect_range(RID p_portal) const;
 
+	/* BAKED LIGHT */
 
-			
+	virtual RID baked_light_create();
+
+	virtual void baked_light_set_mode(RID p_baked_light,BakedLightMode p_mode);
+	virtual BakedLightMode baked_light_get_mode(RID p_baked_light) const;
+
+	virtual void baked_light_set_octree(RID p_baked_light,const DVector<uint8_t> p_octree);
+	virtual DVector<uint8_t> baked_light_get_octree(RID p_baked_light) const;
+
+	virtual void baked_light_set_light(RID p_baked_light,const DVector<uint8_t> p_light);
+	virtual DVector<uint8_t> baked_light_get_light(RID p_baked_light) const;
+
+	virtual void baked_light_set_sampler_octree(RID p_baked_light,const DVector<int> &p_sampler);
+	virtual DVector<int> baked_light_get_sampler_octree(RID p_baked_light) const;
+
+	virtual void baked_light_set_lightmap_multiplier(RID p_baked_light,float p_multiplier);
+	virtual float baked_light_get_lightmap_multiplier(RID p_baked_light) const;
+
+	virtual void baked_light_add_lightmap(RID p_baked_light,const RID p_texture,int p_id);
+	virtual void baked_light_clear_lightmaps(RID p_baked_light);
+
+	/* BAKED LIGHT SAMPLER */
+
+	virtual RID baked_light_sampler_create();
+
+	virtual void baked_light_sampler_set_param(RID p_baked_light_sampler,BakedLightSamplerParam p_param,float p_value);
+	virtual float baked_light_sampler_get_param(RID p_baked_light_sampler,BakedLightSamplerParam p_param) const;
+
+	virtual void baked_light_sampler_set_resolution(RID p_baked_light_sampler,int p_resolution);
+	virtual int baked_light_sampler_get_resolution(RID p_baked_light_sampler) const;
+
 	/* CAMERA API */
 	
 	virtual RID camera_create();
@@ -915,7 +983,11 @@ public:
 	virtual RID viewport_get_render_target_texture(RID p_viewport) const;
 	virtual void viewport_set_render_target_vflip(RID p_viewport,bool p_enable);
 	virtual bool viewport_get_render_target_vflip(RID p_viewport) const;
+	virtual void viewport_set_render_target_clear_on_new_frame(RID p_viewport,bool p_enable);
+	virtual bool viewport_get_render_target_clear_on_new_frame(RID p_viewport) const;
+	virtual void viewport_render_target_clear(RID p_viewport);
 	virtual void viewport_set_render_target_to_screen_rect(RID p_viewport,const Rect2& p_rect);
+
 
 	virtual void viewport_queue_screen_capture(RID p_viewport);
 	virtual Image viewport_get_screen_capture(RID p_viewport) const;
@@ -925,6 +997,7 @@ public:
 	
 	virtual void viewport_set_hide_scenario(RID p_viewport,bool p_hide);
 	virtual void viewport_set_hide_canvas(RID p_viewport,bool p_hide);
+	virtual void viewport_set_disable_environment(RID p_viewport,bool p_disable);
 	virtual void viewport_attach_camera(RID p_viewport,RID p_camera);
 	virtual void viewport_set_scenario(RID p_viewport,RID p_scenario);
 
@@ -966,6 +1039,8 @@ public:
 	virtual void scenario_set_debug(RID p_scenario,ScenarioDebugMode p_debug_mode);
 	virtual void scenario_set_environment(RID p_scenario, RID p_environment);
 	virtual RID scenario_get_environment(RID p_scenario, RID p_environment) const;
+	virtual void scenario_set_fallback_environment(RID p_scenario, RID p_environment);
+
 
 		
 	/* INSTANCING API */
@@ -1018,11 +1093,25 @@ public:
 	virtual float instance_geometry_get_draw_range_max(RID p_instance) const;
 	virtual float instance_geometry_get_draw_range_min(RID p_instance) const;
 
+	virtual void instance_geometry_set_baked_light(RID p_instance,RID p_baked_light);
+	virtual RID instance_geometry_get_baked_light(RID p_instance) const;
+
+	virtual void instance_geometry_set_baked_light_sampler(RID p_instance,RID p_baked_light_sampler);
+	virtual RID instance_geometry_get_baked_light_sampler(RID p_instance) const;
+
+	virtual void instance_geometry_set_baked_light_texture_index(RID p_instance,int p_tex_id);
+	virtual int instance_geometry_get_baked_light_texture_index(RID p_instance) const;
+
+	virtual void instance_light_set_enabled(RID p_instance,bool p_enabled);
+	virtual bool instance_light_is_enabled(RID p_instance) const;
+
 	/* CANVAS (2D) */
 	
 	virtual RID canvas_create();
 	virtual void canvas_set_item_mirroring(RID p_canvas,RID p_item,const Point2& p_mirroring);
 	virtual Point2 canvas_get_item_mirroring(RID p_canvas,RID p_item) const;
+	virtual void canvas_set_modulate(RID p_canvas,const Color& p_color);
+
 
 	virtual RID canvas_item_create();
 
@@ -1033,11 +1122,14 @@ public:
 	virtual bool canvas_item_is_visible(RID p_item) const;
 
 	virtual void canvas_item_set_blend_mode(RID p_canvas_item,MaterialBlendMode p_blend);
+	virtual void canvas_item_set_light_mask(RID p_canvas_item,int p_mask);
+
 
 
 	//virtual void canvas_item_set_rect(RID p_item, const Rect2& p_rect);
 	virtual void canvas_item_set_transform(RID p_item, const Matrix32& p_transform);
 	virtual void canvas_item_set_clip(RID p_item, bool p_clip);
+	virtual void canvas_item_set_distance_field_mode(RID p_item, bool p_enable);
 	virtual void canvas_item_set_custom_rect(RID p_item, bool p_custom_rect,const Rect2& p_rect=Rect2());
 	virtual void canvas_item_set_opacity(RID p_item, float p_opacity);
 	virtual float canvas_item_get_opacity(RID p_item, float p_opacity) const;
@@ -1052,8 +1144,8 @@ public:
 	virtual void canvas_item_add_line(RID p_item, const Point2& p_from, const Point2& p_to,const Color& p_color,float p_width=1.0);
 	virtual void canvas_item_add_rect(RID p_item, const Rect2& p_rect, const Color& p_color);
 	virtual void canvas_item_add_circle(RID p_item, const Point2& p_pos, float p_radius,const Color& p_color);
-	virtual void canvas_item_add_texture_rect(RID p_item, const Rect2& p_rect, RID p_texture,bool p_tile=false,const Color& p_modulate=Color(1,1,1));
-	virtual void canvas_item_add_texture_rect_region(RID p_item, const Rect2& p_rect, RID p_texture,const Rect2& p_src_rect,const Color& p_modulate=Color(1,1,1));
+	virtual void canvas_item_add_texture_rect(RID p_item, const Rect2& p_rect, RID p_texture,bool p_tile=false,const Color& p_modulate=Color(1,1,1),bool p_transpose=false);
+	virtual void canvas_item_add_texture_rect_region(RID p_item, const Rect2& p_rect, RID p_texture,const Rect2& p_src_rect,const Color& p_modulate=Color(1,1,1),bool p_transpose=false);
 	virtual void canvas_item_add_style_box(RID p_item, const Rect2& p_rect, RID p_texture,const Vector2& p_topleft, const Vector2& p_bottomright, bool p_draw_center=true,const Color& p_modulate=Color(1,1,1));
 	virtual void canvas_item_add_primitive(RID p_item, const Vector<Point2>& p_points, const Vector<Color>& p_colors,const Vector<Point2>& p_uvs, RID p_texture,float p_width=1.0);
 	virtual void canvas_item_add_polygon(RID p_item, const Vector<Point2>& p_points, const Vector<Color>& p_colors,const Vector<Point2>& p_uvs=Vector<Point2>(), RID p_texture=RID());
@@ -1062,9 +1154,64 @@ public:
 	virtual void canvas_item_add_set_transform(RID p_item,const Matrix32& p_transform);
 	virtual void canvas_item_add_set_blend_mode(RID p_item, MaterialBlendMode p_blend);
 	virtual void canvas_item_add_clip_ignore(RID p_item, bool p_ignore);
+	virtual void canvas_item_set_sort_children_by_y(RID p_item, bool p_enable);
+	virtual void canvas_item_set_z(RID p_item, int p_z);
+	virtual void canvas_item_set_z_as_relative_to_parent(RID p_item, bool p_enable);
+	virtual void canvas_item_set_copy_to_backbuffer(RID p_item, bool p_enable,const Rect2& p_rect);
+
+	virtual void canvas_item_set_material(RID p_item, RID p_material);
+	virtual void canvas_item_set_use_parent_material(RID p_item, bool p_enable);
+
+	virtual RID canvas_light_create();
+	virtual void canvas_light_attach_to_canvas(RID p_light,RID p_canvas);
+	virtual void canvas_light_set_enabled(RID p_light, bool p_enabled);
+	virtual void canvas_light_set_transform(RID p_light, const Matrix32& p_transform);
+	virtual void canvas_light_set_scale(RID p_light, float p_scale);
+	virtual void canvas_light_set_texture(RID p_light, RID p_texture);
+	virtual void canvas_light_set_texture_offset(RID p_light, const Vector2& p_offset);
+	virtual void canvas_light_set_color(RID p_light, const Color& p_color);
+	virtual void canvas_light_set_height(RID p_light, float p_height);
+	virtual void canvas_light_set_energy(RID p_light, float p_energy);
+	virtual void canvas_light_set_z_range(RID p_light, int p_min_z,int p_max_z);
+	virtual void canvas_light_set_layer_range(RID p_light, int p_min_layer,int p_max_layer);
+	virtual void canvas_light_set_item_mask(RID p_light, int p_mask);
+	virtual void canvas_light_set_item_shadow_mask(RID p_light, int p_mask);
+
+	virtual void canvas_light_set_mode(RID p_light, CanvasLightMode p_mode);
+	virtual void canvas_light_set_shadow_enabled(RID p_light, bool p_enabled);
+	virtual void canvas_light_set_shadow_buffer_size(RID p_light, int p_size);
+	virtual void canvas_light_set_shadow_esm_multiplier(RID p_light, float p_multiplier);
+	virtual void canvas_light_set_shadow_color(RID p_light, const Color& p_color);
+
+
+
+	virtual RID canvas_light_occluder_create();
+	virtual void canvas_light_occluder_attach_to_canvas(RID p_occluder,RID p_canvas);
+	virtual void canvas_light_occluder_set_enabled(RID p_occluder,bool p_enabled);
+	virtual void canvas_light_occluder_set_polygon(RID p_occluder,RID p_polygon);
+	virtual void canvas_light_occluder_set_transform(RID p_occluder,const Matrix32& p_xform);
+	virtual void canvas_light_occluder_set_light_mask(RID p_occluder,int p_mask);
+
+
+	virtual RID canvas_occluder_polygon_create();
+	virtual void canvas_occluder_polygon_set_shape(RID p_occluder_polygon,const DVector<Vector2>& p_shape,bool p_close);
+	virtual void canvas_occluder_polygon_set_shape_as_lines(RID p_occluder_polygon,const DVector<Vector2>& p_shape);
+	virtual void canvas_occluder_polygon_set_cull_mode(RID p_occluder_polygon,CanvasOccluderPolygonCullMode p_mode);
+
+
 
 	virtual void canvas_item_clear(RID p_item);
 	virtual void canvas_item_raise(RID p_item);
+
+	/* CANVAS ITEM MATERIAL */
+
+	virtual RID canvas_item_material_create();
+	virtual void canvas_item_material_set_shader(RID p_material, RID p_shader);
+	virtual void canvas_item_material_set_shader_param(RID p_material, const StringName& p_param, const Variant& p_value);
+	virtual Variant canvas_item_material_get_shader_param(RID p_material, const StringName& p_param) const;	
+	virtual void canvas_item_material_set_shading_mode(RID p_material, CanvasItemShadingMode p_mode);
+
+
 
 	/* CURSOR */
 	virtual void cursor_set_rotation(float p_rotation, int p_cursor = 0); // radians
@@ -1075,6 +1222,7 @@ public:
 	/* BLACK BARS */
 
 	virtual void black_bars_set_margins(int p_left, int p_top, int p_right, int p_bottom);
+	virtual void black_bars_set_images(RID p_left, RID p_top, RID p_right, RID p_bottom);
 
 	/* FREE */
 	
@@ -1092,7 +1240,7 @@ public:
 	/* EVENT QUEUING */
 
 	virtual void draw();
-	virtual void flush();
+	virtual void sync();
 
 	virtual void init();	
 	virtual void finish();
@@ -1106,7 +1254,7 @@ public:
 
 	RID get_test_cube();
 
-	virtual void set_boot_image(const Image& p_image, const Color& p_color);
+	virtual void set_boot_image(const Image& p_image, const Color& p_color, bool p_scale);
 	virtual void set_default_clear_color(const Color& p_color);
 
 	VisualServerRaster(Rasterizer *p_rasterizer);	

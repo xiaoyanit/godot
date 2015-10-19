@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -59,13 +59,14 @@ class EditorFileSystemDirectory : public Object {
 
 		Vector<Source> sources;
 		String import_editor;
+		Vector<String> deps;
 		bool enabled;
 
 	};
 
 	struct FileInfo {
 		String file;
-		String type;
+		StringName type;
 		uint64_t modified_time;
 
 		ImportMeta meta;
@@ -74,6 +75,7 @@ class EditorFileSystemDirectory : public Object {
 	Vector<FileInfo> files;
 
 	static void _bind_methods();
+
 
 friend class EditorFileSystem;
 public:
@@ -86,10 +88,11 @@ public:
 	int get_file_count() const;
 	String get_file(int p_idx) const;
 	String get_file_path(int p_idx) const;
-	String get_file_type(int p_idx) const;
+	StringName get_file_type(int p_idx) const;
 	bool get_file_meta(int p_idx) const;
 	bool is_missing_sources(int p_idx) const;
 	Vector<String> get_missing_sources(int p_idx) const;
+	Vector<String> get_file_deps(int p_idx) const;
 
 	EditorFileSystemDirectory *get_parent();
 
@@ -119,7 +122,7 @@ class EditorFileSystem : public Node {
 		String path;
 		String name;
 		Vector<DirItem*> dirs;
-		Vector<SceneItem*> files;
+		Vector<SceneItem*> files;		
 		~DirItem();
 	};
 
@@ -148,6 +151,7 @@ class EditorFileSystem : public Node {
 		String type;
 		uint64_t modification_time;
 		EditorFileSystemDirectory::ImportMeta meta;
+		Vector<String> deps;
 	};
 
 	struct DirCache {
@@ -180,6 +184,7 @@ class EditorFileSystem : public Node {
 	List<String> sources_changed;
 
 	static void _resource_saved(const String& p_path);
+	String _find_first_from_source(EditorFileSystemDirectory* p_dir,const String &p_src) const;
 
 protected:
 
@@ -197,6 +202,7 @@ public:
 	void scan_sources();
 	void get_changed_sources(List<String> *r_changed);
 	void update_file(const String& p_file);
+	String find_resource_from_source(const String& p_path) const;
 	EditorFileSystemDirectory *get_path(const String& p_path);
 	String get_file_type(const String& p_file) const;
 	EditorFileSystem();

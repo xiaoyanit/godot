@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,17 +33,38 @@
 #include "scene/gui/control.h"
 #include "scene/gui/tree.h"
 #include "scene/gui/label.h"
-#include "scene/gui/button.h"
+#include "scene/gui/tool_button.h"
+#include "scene/gui/option_button.h"
+#include "scene/gui/box_container.h"
+#include "scene/gui/menu_button.h"
+#include "scene/gui/item_list.h"
+#include "scene/gui/progress_bar.h"
+
 #include "os/dir_access.h"
 #include "os/thread.h"
 
 #include "editor_file_system.h"
-
+#include "editor_dir_dialog.h"
+#include "dependency_editor.h"
 
 class EditorNode;
 
-class ScenesDock : public Control {
-	OBJ_TYPE( ScenesDock, Control );
+
+class ScenesDock : public VBoxContainer {
+	OBJ_TYPE( ScenesDock, VBoxContainer );
+
+	enum FileMenu {
+		FILE_DEPENDENCIES,
+		FILE_OWNERS,
+		FILE_MOVE,
+		FILE_REMOVE,
+		FILE_REIMPORT,
+		FILE_INFO
+	};
+
+
+	VBoxContainer *scanning_vb;
+	ProgressBar *scanning_progress;
 
 	EditorNode *editor;
 	Set<String> favorites;
@@ -51,20 +72,76 @@ class ScenesDock : public Control {
 	Button *button_reload;
 	Button *button_instance;
 	Button *button_favorite;
+	Button *button_fav_up;
+	Button *button_fav_down;
 	Button *button_open;
-	Timer *timer;
+	Button *button_back;
+	Button *display_mode;
+	Button *button_hist_next;
+	Button *button_hist_prev;
+	LineEdit *current_path;
+	HBoxContainer *path_hb;
+
+	MenuButton *file_options;
+
+
+	DependencyEditor *deps_editor;
+	DependencyEditorOwners *owners_editor;
+	DependencyRemoveDialog *remove_dialog;
+
+	EditorDirDialog *move_dialog;
+	EditorFileDialog *rename_dialog;
+
+	Vector<String> move_dirs;
+	Vector<String> move_files;
+
+
+	Vector<String> history;
+	int history_pos;
+
+	String path;
+
+	bool initialized;
 
 	bool updating_tree;
-	Tree * tree;
-	bool _create_tree(TreeItem *p_parent,EditorFileSystemDirectory *p_dir);
+	Tree * tree; //directories
+	ItemList *files;
 
+	bool tree_mode;
+
+	void _go_to_tree();
+	void _go_to_dir(const String& p_dir);
+	void _select_file(int p_idx);
+
+	bool _create_tree(TreeItem *p_parent,EditorFileSystemDirectory *p_dir);
+	void _thumbnail_done(const String& p_path,const Ref<Texture>& p_preview, const Variant& p_udata);
+	void _find_inside_move_files(EditorFileSystemDirectory *efsd,Vector<String>& files);
+	void _find_remaps(EditorFileSystemDirectory *efsd,Map<String,String> &renames,List<String>& to_remaps);
+
+	void _rename_operation(const String& p_to_path);
+	void _move_operation(const String& p_to_path);
+
+
+	void _file_option(int p_option);
+	void _update_files(bool p_keep_selection);
+	void _change_file_display();
+
+	void _fs_changed();
+	void _fw_history();
+	void _bw_history();
+	void _push_to_history();
+
+	void _fav_up_pressed();
+	void _fav_down_pressed();
+	void _dir_selected();
 	void _update_tree();
 	void _rescan();
-	void _favorites_toggled(bool);
-	void _favorite_toggled();
+	void _set_scannig_mode();
+
+	void _favorites_pressed();	
 	void _instance_pressed();
 	void _open_pressed();
-	void _save_favorites();
+
 
 protected:
 	void _notification(int p_what);
@@ -72,9 +149,14 @@ protected:
 public:
 
 	String get_selected_path() const;
+	void open(const String& p_path);
+
+	void fix_dependencies(const String& p_for_file);
+
 
 	ScenesDock(EditorNode *p_editor);
 	~ScenesDock();
 };
+
 
 #endif // SCENES_DOCK_H

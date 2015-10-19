@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -27,10 +27,9 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 #include "register_core_types.h"
-#include "io/object_format_xml.h"
-#include "io/object_format_binary.h"
 
 #include "io/tcp_server.h"
+#include "io/packet_peer_udp.h"
 #include "io/config_file.h"
 #include "os/main_loop.h"
 #include "io/packet_peer.h"
@@ -56,14 +55,6 @@
 #ifdef XML_ENABLED
 static ResourceFormatSaverXML *resource_saver_xml=NULL;
 static ResourceFormatLoaderXML *resource_loader_xml=NULL;
-#ifdef OLD_SCENE_FORMAT_ENABLED
-static ObjectFormatSaverInstancerXML *object_format_saver_xml=NULL;
-static ObjectFormatLoaderInstancerXML *object_format_loader_xml=NULL;
-#endif
-#endif
-#ifdef OLD_SCENE_FORMAT_ENABLED
-static ObjectFormatSaverInstancerBinary * object_format_saver_binary = NULL;
-static ObjectFormatLoaderInstancerBinary * object_format_loader_binary = NULL;
 #endif
 static ResourceFormatSaverBinary *resource_saver_binary=NULL;
 static ResourceFormatLoaderBinary *resource_loader_binary=NULL;
@@ -101,23 +92,6 @@ void register_core_types() {
 
 	CoreStringNames::create();
 	
-#ifdef XML_ENABLED
-#ifdef OLD_SCENE_FORMAT_ENABLED
-	object_format_saver_xml = memnew( ObjectFormatSaverInstancerXML );
-	ObjectSaver::add_object_format_saver_instancer( object_format_saver_xml );
-	
-	object_format_loader_xml = memnew( ObjectFormatLoaderInstancerXML );
-	ObjectLoader::add_object_format_loader_instancer( object_format_loader_xml );
-#endif
-#endif
-#ifdef OLD_SCENE_FORMAT_ENABLED
-	object_format_saver_binary = memnew( ObjectFormatSaverInstancerBinary );
-	ObjectSaver::add_object_format_saver_instancer( object_format_saver_binary );
-
-
-	object_format_loader_binary = memnew( ObjectFormatLoaderInstancerBinary );
-	ObjectLoader::add_object_format_loader_instancer( object_format_loader_binary );
-#endif
 	resource_format_po = memnew( TranslationLoaderPO );
 	ResourceLoader::add_resource_format_loader( resource_format_po );
 
@@ -136,12 +110,14 @@ void register_core_types() {
 
 
 	ObjectTypeDB::register_type<Reference>();
+	ObjectTypeDB::register_type<WeakRef>();
 	ObjectTypeDB::register_type<ResourceImportMetadata>();
 	ObjectTypeDB::register_type<Resource>();
 	ObjectTypeDB::register_type<FuncRef>();
 	ObjectTypeDB::register_virtual_type<StreamPeer>();
 	ObjectTypeDB::register_create_type<StreamPeerTCP>();
 	ObjectTypeDB::register_create_type<TCP_Server>();
+	ObjectTypeDB::register_create_type<PacketPeerUDP>();
 	ObjectTypeDB::register_create_type<StreamPeerSSL>();
 	ObjectTypeDB::register_virtual_type<IP>();
 	ObjectTypeDB::register_virtual_type<PacketPeer>();
@@ -212,10 +188,6 @@ void unregister_core_types() {
 
 	memdelete( _geometry );
 #ifdef XML_ENABLED
-#ifdef OLD_SCENE_FORMAT_ENABLED
-	memdelete( object_format_saver_xml );
-	memdelete( object_format_loader_xml );
-#endif
 	if (resource_saver_xml)
 		memdelete(resource_saver_xml);
 	if (resource_loader_xml)
@@ -228,21 +200,19 @@ void unregister_core_types() {
 		memdelete(resource_loader_binary);
 
 
-#ifdef OLD_SCENE_FORMAT_ENABLED
-	memdelete( object_format_saver_binary );
-	memdelete( object_format_loader_binary );
-#endif
 	memdelete( resource_format_po );
 
 	if (ip)
 		memdelete(ip);
 
+
+	ObjectDB::cleanup();
+
 	unregister_variant_methods();
 
-	CoreStringNames::free();
 	ObjectTypeDB::cleanup();
 	ResourceCache::clear();
-	ObjectDB::cleanup();
+	CoreStringNames::free();
 	StringName::cleanup();
 
 	if (_global_mutex) {

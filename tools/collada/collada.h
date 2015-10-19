@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -53,12 +53,14 @@ public:
 
 	struct Material {
 
+		String name;
 		String instance_effect;
 	};
 
 
 	struct Effect {
 
+		String name;
 		Map<String, Variant> params;
 
 		struct Channel {
@@ -300,6 +302,7 @@ public:
 		Vector3 uv2;
 		Plane tangent;
 		Color color;
+		int uid;
 		struct Weight {
 			int bone_idx;
 			float weight;
@@ -329,21 +332,44 @@ public:
 
 		bool operator<(const Vertex& p_vert) const {
 
-			if (vertex==p_vert.vertex) {
-				if(normal==p_vert.normal) {
-					if(uv==p_vert.uv) {
-						if(uv2==p_vert.uv2) {
-							return (color<p_vert.color);
+			if (uid==p_vert.uid) {
+				if (vertex==p_vert.vertex) {
+					if(normal==p_vert.normal) {
+						if(uv==p_vert.uv) {
+							if(uv2==p_vert.uv2) {
+
+								if (!weights.empty() || !p_vert.weights.empty()) {
+
+									if (weights.size()==p_vert.weights.size()) {
+
+										for(int i=0;i<weights.size();i++) {
+											if (weights[i].bone_idx!=p_vert.weights[i].bone_idx)
+												return weights[i].bone_idx<p_vert.weights[i].bone_idx;
+
+											if (weights[i].weight!=p_vert.weights[i].weight)
+												return weights[i].weight<p_vert.weights[i].weight;
+										}
+									}  else {
+										return weights.size() < p_vert.weights.size();
+									}
+
+								}
+
+								return (color<p_vert.color);
+							} else
+								return (uv2<p_vert.uv2);
 						} else
-							return (uv2<p_vert.uv2);
+							return (uv<p_vert.uv);
 					} else
-						return (uv<p_vert.uv);
+						return (normal<p_vert.normal);
 				} else
-					return (normal<p_vert.normal);
+					return vertex<p_vert.vertex;
 			} else
-				return vertex<p_vert.vertex;
+				return uid < p_vert.uid;
 
 		}
+
+		Vertex() { uid=0; idx=0; }
 	};
 	struct Node {
 
@@ -542,6 +568,7 @@ public:
 		Map<String,VisualScene> visual_scene_map;
 		Map<String,Node*> scene_map;
 		Set<String> idref_joints;
+		Map<String,String> sid_to_node_map;
 		//Map<String,NodeJoint*> bone_map;
 
 		Map<String,Transform> bone_rest_map;
@@ -610,10 +637,11 @@ private: // private stuff
 	Transform _read_transform(XMLParser& parser);
 
 	void _joint_set_owner(Collada::Node *p_node, NodeSkeleton *p_owner);
-	void _create_skeletons(Collada::Node **p_node);
+	void _create_skeletons(Collada::Node **p_node, NodeSkeleton *p_skeleton=NULL);
 	void _find_morph_nodes(VisualScene *p_vscene,Node *p_node);
 	bool _remove_node(Node *p_parent,Node *p_node);
 	void _remove_node(VisualScene *p_vscene,Node *p_node);
+	void _merge_skeletons2(VisualScene *p_vscene);
 	void _merge_skeletons(VisualScene *p_vscene,Node *p_node);
 	bool _optimize_skeletons(VisualScene *p_vscene,Node *p_node);
 

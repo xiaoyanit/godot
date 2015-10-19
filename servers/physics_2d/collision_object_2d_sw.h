@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -47,6 +47,7 @@ private:
 	Type type;
 	RID self;
 	ObjectID instance_id;
+	bool pickable;
 
 	struct Shape {
 
@@ -55,17 +56,17 @@ private:
 		BroadPhase2DSW::ID bpid;
 		Rect2 aabb_cache; //for rayqueries
 		Shape2DSW *shape;
-		Vector2 kinematic_advance;
-		float kinematic_retreat;
+		Variant metadata;
 		bool trigger;
-		Shape() { trigger=false; kinematic_retreat=0; }
+		Shape() { trigger=false; }
 	};
 
 	Vector<Shape> shapes;
 	Space2DSW *space;
 	Matrix32 transform;
 	Matrix32 inv_transform;
-	uint32_t user_mask;
+	uint32_t collision_mask;
+	uint32_t layer_mask;
 	bool _static;
 
 	void _update_shapes();
@@ -98,17 +99,15 @@ public:
 	void add_shape(Shape2DSW *p_shape,const Matrix32& p_transform=Matrix32());
 	void set_shape(int p_index,Shape2DSW *p_shape);
 	void set_shape_transform(int p_index,const Matrix32& p_transform);
+	void set_shape_metadata(int p_index,const Variant& p_metadata);
+
+
 	_FORCE_INLINE_ int get_shape_count() const { return shapes.size(); }
 	_FORCE_INLINE_ Shape2DSW *get_shape(int p_index) const { return shapes[p_index].shape; }
 	_FORCE_INLINE_ const Matrix32& get_shape_transform(int p_index) const { return shapes[p_index].xform; }
 	_FORCE_INLINE_ const Matrix32& get_shape_inv_transform(int p_index) const { return shapes[p_index].xform_inv; }
 	_FORCE_INLINE_ const Rect2& get_shape_aabb(int p_index) const { return shapes[p_index].aabb_cache; }
-
-	_FORCE_INLINE_ void set_shape_kinematic_advance(int p_index,const Vector2& p_advance) { shapes[p_index].kinematic_advance=p_advance; }
-	_FORCE_INLINE_ Vector2 get_shape_kinematic_advance(int p_index) const { return shapes[p_index].kinematic_advance; }
-
-	_FORCE_INLINE_ void set_shape_kinematic_retreat(int p_index,float p_retreat) { shapes[p_index].kinematic_retreat=p_retreat; }
-	_FORCE_INLINE_ float get_shape_kinematic_retreat(int p_index) const { return shapes[p_index].kinematic_retreat; }
+	_FORCE_INLINE_ const Variant& get_shape_metadata(int p_index) const { return shapes[p_index].metadata; }
 
 	_FORCE_INLINE_ Matrix32 get_transform() const { return transform; }
 	_FORCE_INLINE_ Matrix32 get_inv_transform() const { return inv_transform; }
@@ -118,8 +117,11 @@ public:
 	_FORCE_INLINE_ bool is_shape_set_as_trigger(int p_idx) const { return shapes[p_idx].trigger; }
 
 
-	void set_user_mask(uint32_t p_mask) {user_mask=p_mask;}
-	_FORCE_INLINE_ uint32_t get_user_mask() const { return user_mask; }
+	void set_collision_mask(uint32_t p_mask) {collision_mask=p_mask;}
+	_FORCE_INLINE_ uint32_t get_collision_mask() const { return collision_mask; }
+
+	void set_layer_mask(uint32_t p_mask) {layer_mask=p_mask;}
+	_FORCE_INLINE_ uint32_t get_layer_mask() const { return layer_mask; }
 
 	void remove_shape(Shape2DSW *p_shape);
 	void remove_shape(int p_index);
@@ -127,6 +129,14 @@ public:
 	virtual void set_space(Space2DSW *p_space)=0;
 
 	_FORCE_INLINE_ bool is_static() const { return _static;  }
+
+	void set_pickable(bool p_pickable) { pickable=p_pickable; }
+	_FORCE_INLINE_ bool is_pickable() const { return pickable; }
+
+	_FORCE_INLINE_ bool test_collision_mask(CollisionObject2DSW* p_other) const {
+
+		return layer_mask&p_other->collision_mask || p_other->layer_mask&collision_mask;
+	}
 
 	virtual ~CollisionObject2DSW() {}
 

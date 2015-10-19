@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,6 +31,7 @@
 
 #include "object.h"
 #include "reference.h"
+#include "resource.h"
 
 class Physics2DDirectSpaceState;
 
@@ -42,7 +43,8 @@ protected:
 public:
 
 	virtual Vector2 get_total_gravity() const=0; // get gravity vector working on this body space/area
-	virtual float get_total_density() const=0; // get density of this body space/area
+	virtual float get_total_linear_damp() const=0; // get density of this body space/area
+	virtual float get_total_angular_damp() const=0; // get density of this body space/area
 
 	virtual float get_inverse_mass() const=0; // get the mass
 	virtual real_t get_inverse_inertia() const=0; // get density of this body space
@@ -70,6 +72,7 @@ public:
 	virtual ObjectID get_contact_collider_id(int p_contact_idx) const=0;
 	virtual Object* get_contact_collider_object(int p_contact_idx) const;
 	virtual int get_contact_collider_shape(int p_contact_idx) const=0;
+	virtual Variant get_contact_collider_shape_metadata(int p_contact_idx) const=0;
 	virtual Vector2 get_contact_collider_velocity_at_pos(int p_contact_idx) const=0;
 
 	virtual real_t get_step() const=0;
@@ -84,14 +87,61 @@ public:
 class Physics2DShapeQueryResult;
 
 
+//used for script
+class Physics2DShapeQueryParameters : public Reference {
+
+	OBJ_TYPE(Physics2DShapeQueryParameters, Reference);
+friend class Physics2DDirectSpaceState;
+	RID shape;
+	Matrix32 transform;
+	Vector2 motion;
+	float margin;
+	Set<RID> exclude;
+	uint32_t layer_mask;
+	uint32_t object_type_mask;
+protected:
+	static void _bind_methods();
+public:
+
+
+	void set_shape(const RES& p_shape);
+	void set_shape_rid(const RID& p_shape);
+	RID get_shape_rid() const;
+
+	void set_transform(const Matrix32& p_transform);
+	Matrix32 get_transform() const;
+
+	void set_motion(const Vector2& p_motion);
+	Vector2 get_motion() const;
+
+	void set_margin(float p_margin);
+	float get_margin() const;
+
+	void set_layer_mask(int p_layer_mask);
+	int get_layer_mask() const;
+
+	void set_object_type_mask(int p_object_type_mask);
+	int get_object_type_mask() const;
+
+	void set_exclude(const Vector<RID>& p_exclude);
+	Vector<RID> get_exclude() const;
+
+	Physics2DShapeQueryParameters();
+
+};
+
+
 class Physics2DDirectSpaceState : public Object {
 
 	OBJ_TYPE( Physics2DDirectSpaceState, Object );
 
-	Variant _intersect_ray(const Vector2& p_from, const Vector2& p_to,const Vector<RID>& p_exclude=Vector<RID>(),uint32_t p_user_mask=0);
-	Variant _intersect_shape(const RID& p_shape, const Matrix32& p_xform,int p_result_max=64,const Vector<RID>& p_exclude=Vector<RID>(),uint32_t p_user_mask=0);
-	Variant _cast_motion(const RID& p_shape, const Matrix32& p_xform,const Vector2& p_motion,const Vector<RID>& p_exclude=Vector<RID>(),uint32_t p_user_mask=0);
+	Dictionary _intersect_ray(const Vector2& p_from, const Vector2& p_to,const Vector<RID>& p_exclude=Vector<RID>(),uint32_t p_layers=0,uint32_t p_object_type_mask=TYPE_MASK_COLLISION);
 
+	Array _intersect_point(const Vector2& p_point,int p_max_results=32,const Vector<RID>& p_exclude=Vector<RID>(),uint32_t p_layers=0,uint32_t p_object_type_mask=TYPE_MASK_COLLISION);
+	Array _intersect_shape(const Ref<Physics2DShapeQueryParameters> &p_shape_query,int p_max_results=32);
+	Array _cast_motion(const Ref<Physics2DShapeQueryParameters> &p_shape_query);
+	Array _collide_shape(const Ref<Physics2DShapeQueryParameters> &p_shape_query,int p_max_results=32);
+	Dictionary _get_rest_info(const Ref<Physics2DShapeQueryParameters> &p_shape_query);
 
 protected:
 	static void _bind_methods();
@@ -116,9 +166,10 @@ public:
 		ObjectID collider_id;
 		Object *collider;
 		int shape;
+		Variant metadata;
 	};
 
-	virtual bool intersect_ray(const Vector2& p_from, const Vector2& p_to,RayResult &r_result,const Set<RID>& p_exclude=Set<RID>(),uint32_t p_user_mask=0,uint32_t p_object_type_mask=TYPE_MASK_COLLISION)=0;
+	virtual bool intersect_ray(const Vector2& p_from, const Vector2& p_to,RayResult &r_result,const Set<RID>& p_exclude=Set<RID>(),uint32_t p_layer_mask=0xFFFFFFFF,uint32_t p_object_type_mask=TYPE_MASK_COLLISION)=0;
 
 	struct ShapeResult {
 
@@ -126,16 +177,18 @@ public:
 		ObjectID collider_id;
 		Object *collider;
 		int shape;
+		Variant metadata;
+
 
 	};
 
-	virtual int intersect_shape(const RID& p_shape, const Matrix32& p_xform,const Vector2& p_motion,float p_margin,ShapeResult *r_results,int p_result_max,const Set<RID>& p_exclude=Set<RID>(),uint32_t p_user_mask=0,uint32_t p_object_type_mask=TYPE_MASK_COLLISION)=0;
+	virtual int intersect_point(const Vector2& p_point,ShapeResult *r_results,int p_result_max,const Set<RID>& p_exclude=Set<RID>(),uint32_t p_layer_mask=0xFFFFFFFF,uint32_t p_object_type_mask=TYPE_MASK_COLLISION)=0;
 
+	virtual int intersect_shape(const RID& p_shape, const Matrix32& p_xform,const Vector2& p_motion,float p_margin,ShapeResult *r_results,int p_result_max,const Set<RID>& p_exclude=Set<RID>(),uint32_t p_layer_mask=0xFFFFFFFF,uint32_t p_object_type_mask=TYPE_MASK_COLLISION)=0;
 
+	virtual bool cast_motion(const RID& p_shape, const Matrix32& p_xform,const Vector2& p_motion,float p_margin,float &p_closest_safe,float &p_closest_unsafe, const Set<RID>& p_exclude=Set<RID>(),uint32_t p_layer_mask=0xFFFFFFFF,uint32_t p_object_type_mask=TYPE_MASK_COLLISION)=0;
 
-	virtual bool cast_motion(const RID& p_shape, const Matrix32& p_xform,const Vector2& p_motion,float p_margin,float &p_closest_safe,float &p_closest_unsafe, const Set<RID>& p_exclude=Set<RID>(),uint32_t p_user_mask=0,uint32_t p_object_type_mask=TYPE_MASK_COLLISION)=0;
-
-	virtual bool collide_shape(RID p_shape, const Matrix32& p_shape_xform,const Vector2& p_motion,float p_margin,Vector2 *r_results,int p_result_max,int &r_result_count, const Set<RID>& p_exclude=Set<RID>(),uint32_t p_user_mask=0,uint32_t p_object_type_mask=TYPE_MASK_COLLISION)=0;
+	virtual bool collide_shape(RID p_shape, const Matrix32& p_shape_xform,const Vector2& p_motion,float p_margin,Vector2 *r_results,int p_result_max,int &r_result_count, const Set<RID>& p_exclude=Set<RID>(),uint32_t p_layer_mask=0xFFFFFFFF,uint32_t p_object_type_mask=TYPE_MASK_COLLISION)=0;
 
 	struct ShapeRestInfo {
 
@@ -145,10 +198,11 @@ public:
 		ObjectID collider_id;
 		int shape;
 		Vector2 linear_velocity; //velocity at contact point
+		Variant metadata;
 
 	};
 
-	virtual bool rest_info(RID p_shape, const Matrix32& p_shape_xform,const Vector2& p_motion,float p_margin,ShapeRestInfo *r_info, const Set<RID>& p_exclude=Set<RID>(),uint32_t p_user_mask=0,uint32_t p_object_type_mask=TYPE_MASK_COLLISION)=0;
+	virtual bool rest_info(RID p_shape, const Matrix32& p_shape_xform,const Vector2& p_motion,float p_margin,ShapeRestInfo *r_info, const Set<RID>& p_exclude=Set<RID>(),uint32_t p_layer_mask=0xFFFFFFFF,uint32_t p_object_type_mask=TYPE_MASK_COLLISION)=0;
 
 
 	Physics2DDirectSpaceState();
@@ -176,12 +230,15 @@ public:
 	Physics2DShapeQueryResult();
 };
 
+class Physics2DTestMotionResult;
 
 class Physics2DServer : public Object {
 
 	OBJ_TYPE( Physics2DServer, Object );
 
 	static Physics2DServer * singleton;
+
+	virtual bool _body_test_motion(RID p_body,const Vector2& p_motion,float p_margin=0.08,const Ref<Physics2DTestMotionResult>& p_result=Ref<Physics2DTestMotionResult>());
 
 protected:
 	static void _bind_methods();
@@ -227,7 +284,6 @@ public:
 		SPACE_PARAM_BODY_LINEAR_VELOCITY_SLEEP_TRESHOLD,
 		SPACE_PARAM_BODY_ANGULAR_VELOCITY_SLEEP_TRESHOLD,
 		SPACE_PARAM_BODY_TIME_TO_SLEEP,
-		SPACE_PARAM_BODY_ANGULAR_VELOCITY_DAMP_RATIO,
 		SPACE_PARAM_CONSTRAINT_DEFAULT_BIAS,
 	};
 
@@ -237,6 +293,9 @@ public:
 	// this function only works on fixed process, errors and returns null otherwise
 	virtual Physics2DDirectSpaceState* space_get_direct_state(RID p_space)=0;
 
+	virtual void space_set_debug_contacts(RID p_space,int p_max_contacts)=0;
+	virtual Vector<Vector2> space_get_contacts(RID p_space) const=0;
+	virtual int space_get_contact_count(RID p_space) const=0;
 
 	//missing space parameters
 
@@ -250,8 +309,10 @@ public:
 		AREA_PARAM_GRAVITY,
 		AREA_PARAM_GRAVITY_VECTOR,
 		AREA_PARAM_GRAVITY_IS_POINT,
+		AREA_PARAM_GRAVITY_DISTANCE_SCALE,
 		AREA_PARAM_GRAVITY_POINT_ATTENUATION,
-		AREA_PARAM_DENSITY,
+		AREA_PARAM_LINEAR_DAMP,
+		AREA_PARAM_ANGULAR_DAMP,
 		AREA_PARAM_PRIORITY
 	};
 
@@ -290,7 +351,14 @@ public:
 	virtual Variant area_get_param(RID p_parea,AreaParameter p_param) const=0;
 	virtual Matrix32 area_get_transform(RID p_area) const=0;
 
+	virtual void area_set_collision_mask(RID p_area,uint32_t p_mask)=0;
+	virtual void area_set_layer_mask(RID p_area,uint32_t p_mask)=0;
+
+	virtual void area_set_monitorable(RID p_area,bool p_monitorable)=0;
+	virtual void area_set_pickable(RID p_area,bool p_pickable)=0;
+
 	virtual void area_set_monitor_callback(RID p_area,Object *p_receiver,const StringName& p_method)=0;
+	virtual void area_set_area_monitor_callback(RID p_area,Object *p_receiver,const StringName& p_method)=0;
 
 	/* BODY API */
 
@@ -315,10 +383,12 @@ public:
 	virtual void body_add_shape(RID p_body, RID p_shape, const Matrix32& p_transform=Matrix32())=0;
 	virtual void body_set_shape(RID p_body, int p_shape_idx,RID p_shape)=0;
 	virtual void body_set_shape_transform(RID p_body, int p_shape_idx, const Matrix32& p_transform)=0;
+	virtual void body_set_shape_metadata(RID p_body, int p_shape_idx, const Variant& p_metadata)=0;
 
 	virtual int body_get_shape_count(RID p_body) const=0;
 	virtual RID body_get_shape(RID p_body, int p_shape_idx) const=0;
 	virtual Matrix32 body_get_shape_transform(RID p_body, int p_shape_idx) const=0;
+	virtual Variant body_get_shape_metadata(RID p_body, int p_shape_idx) const=0;
 
 	virtual void body_set_shape_as_trigger(RID p_body, int p_shape_idx,bool p_enable)=0;
 	virtual bool body_is_shape_set_as_trigger(RID p_body, int p_shape_idx) const=0;
@@ -338,14 +408,20 @@ public:
 	virtual void body_set_continuous_collision_detection_mode(RID p_body,CCDMode p_mode)=0;
 	virtual CCDMode body_get_continuous_collision_detection_mode(RID p_body) const=0;
 
-	virtual void body_set_user_mask(RID p_body, uint32_t p_mask)=0;
-	virtual uint32_t body_get_user_mask(RID p_body, uint32_t p_mask) const=0;
+	virtual void body_set_layer_mask(RID p_body, uint32_t p_mask)=0;
+	virtual uint32_t body_get_layer_mask(RID p_body) const=0;
+
+	virtual void body_set_collision_mask(RID p_body, uint32_t p_mask)=0;
+	virtual uint32_t body_get_collision_mask(RID p_body) const=0;
 
 	// common body variables
 	enum BodyParameter {
 		BODY_PARAM_BOUNCE,
 		BODY_PARAM_FRICTION,
 		BODY_PARAM_MASS, ///< unused for static, always infinite
+		BODY_PARAM_GRAVITY_SCALE,
+		BODY_PARAM_LINEAR_DAMP,
+		BODY_PARAM_ANGULAR_DAMP,
 		BODY_PARAM_MAX,
 	};
 
@@ -359,7 +435,7 @@ public:
 		BODY_STATE_LINEAR_VELOCITY,
 		BODY_STATE_ANGULAR_VELOCITY,
 		BODY_STATE_SLEEPING,
-		BODY_STATE_CAN_SLEEP
+		BODY_STATE_CAN_SLEEP,
 	};
 
 	virtual void body_set_state(RID p_body, BodyState p_state, const Variant& p_variant)=0;
@@ -383,6 +459,12 @@ public:
 	virtual void body_set_max_contacts_reported(RID p_body, int p_contacts)=0;
 	virtual int body_get_max_contacts_reported(RID p_body) const=0;
 
+	virtual void body_set_one_way_collision_direction(RID p_body,const Vector2& p_direction)=0;
+	virtual Vector2 body_get_one_way_collision_direction(RID p_body) const=0;
+
+	virtual void body_set_one_way_collision_max_depth(RID p_body,float p_max_depth)=0;
+	virtual float body_get_one_way_collision_max_depth(RID p_body) const=0;
+
 	//missing remove
 	virtual void body_set_contacts_reported_depth_treshold(RID p_body, float p_treshold)=0;
 	virtual float body_get_contacts_reported_depth_treshold(RID p_body) const=0;
@@ -393,6 +475,24 @@ public:
 	virtual void body_set_force_integration_callback(RID p_body,Object *p_receiver,const StringName& p_method,const Variant& p_udata=Variant())=0;
 
 	virtual bool body_collide_shape(RID p_body, int p_body_shape,RID p_shape, const Matrix32& p_shape_xform,const Vector2& p_motion,Vector2 *r_results,int p_result_max,int &r_result_count)=0;
+
+	virtual void body_set_pickable(RID p_body,bool p_pickable)=0;
+
+	struct MotionResult {
+
+		Vector2 motion;
+		Vector2 remainder;
+
+		Vector2 collision_point;
+		Vector2 collision_normal;
+		Vector2 collider_velocity;
+		ObjectID collider_id;
+		RID collider;
+		int collider_shape;
+		Variant collider_metadata;
+	};
+
+	virtual bool body_test_motion(RID p_body,const Vector2& p_motion,float p_margin=0.001,MotionResult *r_result=NULL)=0;
 
 	/* JOINT API */
 
@@ -415,6 +515,13 @@ public:
 	virtual RID pin_joint_create(const Vector2& p_anchor,RID p_body_a,RID p_body_b=RID())=0;
 	virtual RID groove_joint_create(const Vector2& p_a_groove1,const Vector2& p_a_groove2, const Vector2& p_b_anchor, RID p_body_a,RID p_body_b)=0;
 	virtual RID damped_spring_joint_create(const Vector2& p_anchor_a,const Vector2& p_anchor_b,RID p_body_a,RID p_body_b=RID())=0;
+
+	enum PinJointParam {
+		PIN_JOINT_SOFTNESS
+	};
+
+	virtual void pin_joint_set_param(RID p_joint, PinJointParam p_param, real_t p_value)=0;
+	virtual real_t pin_joint_get_param(RID p_joint, PinJointParam p_param) const=0;
 
 	enum DampedStringParam {
 		DAMPED_STRING_REST_LENGTH,
@@ -443,11 +550,52 @@ public:
 	virtual void step(float p_step)=0;
 	virtual void sync()=0;
 	virtual void flush_queries()=0;
+	virtual void end_sync()=0;
 	virtual void finish()=0;
+
+	enum ProcessInfo {
+
+		INFO_ACTIVE_OBJECTS,
+		INFO_COLLISION_PAIRS,
+		INFO_ISLAND_COUNT
+	};
+
+	virtual int get_process_info(ProcessInfo p_info)=0;
 
 	Physics2DServer();
 	~Physics2DServer();
 };
+
+
+class Physics2DTestMotionResult : public Reference {
+
+	OBJ_TYPE( Physics2DTestMotionResult, Reference );
+
+	Physics2DServer::MotionResult result;
+	bool colliding;
+friend class Physics2DServer;
+
+protected:
+	static void _bind_methods();
+public:
+
+	Physics2DServer::MotionResult* get_result_ptr() const { return const_cast<Physics2DServer::MotionResult*>(&result); }
+
+	//bool is_colliding() const;
+	Vector2 get_motion() const;
+	Vector2 get_motion_remainder() const;
+
+	Vector2 get_collision_point() const;
+	Vector2 get_collision_normal() const;
+	Vector2 get_collider_velocity() const;
+	ObjectID get_collider_id() const;
+	RID get_collider_rid() const;
+	Object* get_collider() const;
+	int get_collider_shape() const;
+
+	Physics2DTestMotionResult();
+};
+
 
 VARIANT_ENUM_CAST( Physics2DServer::ShapeType );
 VARIANT_ENUM_CAST( Physics2DServer::SpaceParameter );
@@ -462,5 +610,6 @@ VARIANT_ENUM_CAST( Physics2DServer::JointType );
 VARIANT_ENUM_CAST( Physics2DServer::DampedStringParam );
 //VARIANT_ENUM_CAST( Physics2DServer::ObjectType );
 VARIANT_ENUM_CAST( Physics2DServer::AreaBodyStatus );
+VARIANT_ENUM_CAST( Physics2DServer::ProcessInfo );
 
 #endif

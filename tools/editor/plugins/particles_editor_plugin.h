@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -43,11 +43,12 @@ class ParticlesEditor : public Control {
 	OBJ_TYPE(ParticlesEditor, Control );
 
 	Panel *panel;
-	MenuButton * options;
+	MenuButton *options;
+	HBoxContainer *particles_editor_hb;
 	Particles *node;
 
 
-	FileDialog *emission_file_dialog;
+	EditorFileDialog *emission_file_dialog;
 	SceneTreeDialog *emission_tree_dialog;
 
 	ConfirmationDialog *err_dialog;
@@ -77,6 +78,8 @@ class ParticlesEditor : public Control {
 	void _menu_option(int);
 
 	void _populate();
+
+friend class ParticlesEditorPlugin;
 
 protected:
 

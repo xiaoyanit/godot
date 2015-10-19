@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,7 +32,7 @@
 
 void Joint2D::_update_joint() {
 
-	if (!is_inside_scene())
+	if (!is_inside_tree())
 		return;
 
 	if (joint.is_valid()) {
@@ -86,7 +86,7 @@ void Joint2D::_notification(int p_what) {
 		case NOTIFICATION_READY: {
 			_update_joint();
 		} break;
-		case NOTIFICATION_EXIT_SCENE: {
+		case NOTIFICATION_EXIT_TREE: {
 			if (joint.is_valid()) {
 
 				Physics2DServer::get_singleton()->free(joint);
@@ -126,7 +126,7 @@ void Joint2D::_bind_methods() {
 
 	ADD_PROPERTY( PropertyInfo( Variant::NODE_PATH, "node_a"), _SCS("set_node_a"),_SCS("get_node_a") );
 	ADD_PROPERTY( PropertyInfo( Variant::NODE_PATH, "node_b"), _SCS("set_node_b"),_SCS("get_node_b") );
-	ADD_PROPERTY( PropertyInfo( Variant::REAL, "bias/bias",PROPERTY_HINT_RANGE,"0,0.9,0.01"), _SCS("set_bias"),_SCS("get_bias") );
+	ADD_PROPERTY( PropertyInfo( Variant::REAL, "bias/bias",PROPERTY_HINT_RANGE,"0,0.9,0.001"), _SCS("set_bias"),_SCS("get_bias") );
 
 }
 
@@ -145,7 +145,7 @@ void PinJoint2D::_notification(int p_what) {
 
 	switch(p_what) {
 		case NOTIFICATION_DRAW: {
-			if (is_inside_scene() && get_scene()->is_editor_hint()) {
+			if (is_inside_tree() && get_tree()->is_editor_hint()) {
 
 				draw_line(Point2(-10,0),Point2(+10,0),Color(0.7,0.6,0.0,0.5),3);
 				draw_line(Point2(0,-10),Point2(0,+10),Color(0.7,0.6,0.0,0.5),3);
@@ -175,15 +175,37 @@ RID PinJoint2D::_configure_joint() {
 		//add a collision exception between both
 		Physics2DServer::get_singleton()->body_add_collision_exception(body_a->get_rid(),body_b->get_rid());
 	}
-
-	return Physics2DServer::get_singleton()->pin_joint_create(get_global_transform().get_origin(),body_a->get_rid(),body_b?body_b->get_rid():RID());
+	RID pj = Physics2DServer::get_singleton()->pin_joint_create(get_global_transform().get_origin(),body_a->get_rid(),body_b?body_b->get_rid():RID());
+	Physics2DServer::get_singleton()->pin_joint_set_param(pj, Physics2DServer::PIN_JOINT_SOFTNESS, softness);
+	return pj;
 
 }
 
+void PinJoint2D::set_softness(real_t p_softness) {
+
+	softness=p_softness;
+	update();
+	if (get_joint().is_valid())
+		Physics2DServer::get_singleton()->pin_joint_set_param(get_joint(), Physics2DServer::PIN_JOINT_SOFTNESS, p_softness);
+
+}
+
+real_t PinJoint2D::get_softness() const {
+
+	return softness;
+}
+
+void PinJoint2D::_bind_methods() {
+
+	ObjectTypeDB::bind_method(_MD("set_softness","softness"), &PinJoint2D::set_softness);
+	ObjectTypeDB::bind_method(_MD("get_softness"), &PinJoint2D::get_softness);
+
+	ADD_PROPERTY( PropertyInfo( Variant::REAL, "softness", PROPERTY_HINT_EXP_RANGE,"0.00,16,0.01"), _SCS("set_softness"), _SCS("get_softness"));
+}
 
 PinJoint2D::PinJoint2D() {
 
-
+	softness = 0;
 }
 
 
@@ -197,7 +219,7 @@ void GrooveJoint2D::_notification(int p_what) {
 
 	switch(p_what) {
 		case NOTIFICATION_DRAW: {
-			if (is_inside_scene() && get_scene()->is_editor_hint()) {
+			if (is_inside_tree() && get_tree()->is_editor_hint()) {
 
 				draw_line(Point2(-10,0),Point2(+10,0),Color(0.7,0.6,0.0,0.5),3);
 				draw_line(Point2(-10,length),Point2(+10,length),Color(0.7,0.6,0.0,0.5),3);
@@ -291,7 +313,7 @@ void DampedSpringJoint2D::_notification(int p_what) {
 
 	switch(p_what) {
 		case NOTIFICATION_DRAW: {
-			if (is_inside_scene() && get_scene()->is_editor_hint()) {
+			if (is_inside_tree() && get_tree()->is_editor_hint()) {
 
 				draw_line(Point2(-10,0),Point2(+10,0),Color(0.7,0.6,0.0,0.5),3);
 				draw_line(Point2(-10,length),Point2(+10,length),Color(0.7,0.6,0.0,0.5),3);

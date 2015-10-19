@@ -31,7 +31,7 @@ abstract public class PurchaseTask {
 
 	private boolean isLooping = false;
 	
-	public void purchase(final String sku){
+	public void purchase(final String sku, final String transactionId){
 		Log.d("XXX", "Starting purchase for: " + sku);
 		PaymentsCache pc = new PaymentsCache(context);
 		Boolean isBlocked = pc.getConsumableFlag("block", sku);
@@ -40,7 +40,7 @@ abstract public class PurchaseTask {
 //			error("Awaiting payment confirmation");
 //			return;
 //		}
-		final String hash = Crypt.createRandomHash() + Crypt.createRandomHash();
+		final String hash = transactionId;
 
 		Bundle buyIntentBundle;
 		try {
@@ -64,31 +64,7 @@ abstract public class PurchaseTask {
 			canceled();
 			return ;
 		}
-		if(responseCode == 7){
-			new ConsumeTask(mService, context) {
-				
-				@Override
-				protected void success(String ticket) {
-//					Log.d("XXX", "Product was erroniously purchased!");
-					if(isLooping){
-//						Log.d("XXX", "It is looping");
-						error("Error while purchasing product");
-						return;
-					}
-					isLooping=true;
-					PurchaseTask.this.purchase(sku);
-					
-				}
-				
-				@Override
-				protected void error(String message) {
-					PurchaseTask.this.error(message);
-					
-				}
-			}.consume(sku);
-			return;
-		}
-		
+			
 		
 		PendingIntent pendingIntent = buyIntentBundle.getParcelable("BUY_INTENT");
 		pc.setConsumableValue("validation_hash", sku, hash);

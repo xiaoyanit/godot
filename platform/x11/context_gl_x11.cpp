@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -92,7 +92,7 @@ Error ContextGL_X11::initialize() {
 	    GLX_RED_SIZE, 1,
 	    GLX_GREEN_SIZE, 1,
 	    GLX_BLUE_SIZE, 1,
-	    GLX_DEPTH_SIZE,0,
+	    GLX_DEPTH_SIZE, 24,
 	    None 
 	};
 
@@ -128,17 +128,6 @@ Error ContextGL_X11::initialize() {
 				break;
 		}
 		//};
-
-	if (!OS::get_singleton()->get_video_mode().resizable) {
-		XSizeHints *xsh;
-		xsh = XAllocSizeHints();
-		xsh->flags = PMinSize | PMaxSize;
-		xsh->min_width = OS::get_singleton()->get_video_mode().width;
-		xsh->max_width = OS::get_singleton()->get_video_mode().width;
-		xsh->min_height = OS::get_singleton()->get_video_mode().height;
-		xsh->max_height = OS::get_singleton()->get_video_mode().height;
-		XSetWMNormalHints(x11_display, x11_window, xsh);
-	}
 
 
 	if (!opengl_3_context) {

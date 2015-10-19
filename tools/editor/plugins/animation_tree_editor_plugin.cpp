@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -221,8 +221,8 @@ void AnimationTreeEditor::_edit_dialog_animation_changed() {
 
 void AnimationTreeEditor::_edit_dialog_edit_animation() {
 
-	if (get_scene()->is_editor_hint()) {
-		get_scene()->get_root()->get_child(0)->call("_resource_selected", property_editor->get_variant().operator RefPtr());
+	if (get_tree()->is_editor_hint()) {
+		get_tree()->get_root()->get_child(0)->call("_resource_selected", property_editor->get_variant().operator RefPtr());
 	};
 };
 
@@ -936,7 +936,7 @@ void AnimationTreeEditor::_notification(int p_what) {
 
 	switch(p_what) {
 
-		case NOTIFICATION_ENTER_SCENE: {
+		case NOTIFICATION_ENTER_TREE: {
 
 			play_button->set_icon( get_icon("Play","EditorIcons") );
 			add_menu->set_icon( get_icon("Add","EditorIcons") );
@@ -1193,7 +1193,7 @@ void AnimationTreeEditor::_add_menu_item(int p_item) {
 	} else if (p_item == MENU_IMPORT_ANIMATIONS) {
 
 		file_op = MENU_IMPORT_ANIMATIONS;
-		file_dialog->set_mode(FileDialog::MODE_OPEN_FILE);
+		file_dialog->set_mode(EditorFileDialog::MODE_OPEN_FILE);
 		file_dialog->popup_centered_ratio();
 
 	} else {
@@ -1458,7 +1458,7 @@ AnimationTreeEditor::AnimationTreeEditor() {
 	edit_check->hide();;
 	edit_check->connect("pressed", this,"_edit_dialog_changed");
 
-	file_dialog = memnew( FileDialog );
+	file_dialog = memnew( EditorFileDialog );
 	file_dialog->set_enable_multiple_selection(true);
 	file_dialog->set_current_dir(Globals::get_singleton()->get_resource_path());
 	add_child(file_dialog);

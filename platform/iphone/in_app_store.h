@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -49,6 +49,8 @@ public:
 
 	int get_pending_event_count();
 	Variant pop_pending_event();
+	void finish_transaction(String product_id);
+    void set_auto_finish_transaction(bool b);
 
 	void _post_event(Variant p_event);
 	void _record_purchase(String product_id);

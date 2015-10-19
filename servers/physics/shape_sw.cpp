@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -782,7 +782,7 @@ bool ConvexPolygonShapeSW::intersect_segment(const Vector3& p_begin,const Vector
 
 		for(int j=1;j<ic-1;j++) {
 
-			Face3 f(vertices[ind[0]],vertices[ind[i]],vertices[ind[i+1]]);
+			Face3 f(vertices[ind[0]],vertices[ind[j]],vertices[ind[j+1]]);
 			Vector3 result;
 			if (f.intersects_segment(p_begin,p_end,&result)) {
 				float d = n.dot(result);
@@ -928,8 +928,8 @@ void FaceShapeSW::get_supports(const Vector3& p_normal,int p_max,Vector3 *r_supp
 	for (int i=0;i<3;i++) {
 
 		int nx=(i+1)%3;
-		//if (i!=vert_support_idx && nx!=vert_support_idx)
-		//	continue;
+		if (i!=vert_support_idx && nx!=vert_support_idx)
+			continue;
 
 	// check if edge is valid as a support
 		float dot=(vertex[i]-vertex[nx]).normalized().dot(n);
@@ -951,8 +951,12 @@ bool FaceShapeSW::intersect_segment(const Vector3& p_begin,const Vector3& p_end,
 
 
 	bool c=Geometry::segment_intersects_triangle(p_begin,p_end,vertex[0],vertex[1],vertex[2],&r_result);
-	if (c)
+	if (c) {
 		r_normal=Plane(vertex[0],vertex[1],vertex[2]).normal;
+		if (r_normal.dot(p_end-p_begin)>0) {
+			r_normal=-r_normal;
+		}
+	}
 
 	return c;
 }
@@ -993,6 +997,11 @@ DVector<Vector3> ConcavePolygonShapeSW::get_faces() const {
 void ConcavePolygonShapeSW::project_range(const Vector3& p_normal, const Transform& p_transform, real_t &r_min, real_t &r_max) const {
 
 	int count=vertices.size();
+	if (count==0) {
+		r_min=0;
+		r_max=0;
+		return;
+	}
 	DVector<Vector3>::Read r=vertices.read();
 	const Vector3 *vptr=r.ptr();
 
@@ -1012,6 +1021,9 @@ Vector3 ConcavePolygonShapeSW::get_support(const Vector3& p_normal) const {
 
 
 	int count=vertices.size();
+	if (count==0)
+		return Vector3();
+
 	DVector<Vector3>::Read r=vertices.read();
 	const Vector3 *vptr=r.ptr();
 
@@ -1070,13 +1082,15 @@ void ConcavePolygonShapeSW::_cull_segment(int p_idx,_SegmentCullParams *p_params
 				&res)) {
 
 
-			float d=p_params->normal.dot(res) - p_params->normal.dot(p_params->from);
+			float d=p_params->dir.dot(res) - p_params->dir.dot(p_params->from);
 			//TODO, seems segmen/triangle intersection is broken :(
 			if (d>0 && d<p_params->min_d) {
 
 				p_params->min_d=d;
 				p_params->result=res;
 				p_params->normal=Plane(vertices[0],vertices[1],vertices[2]).normal;
+				if (p_params->normal.dot(p_params->dir)>0)
+					p_params->normal=-p_params->normal;
 				p_params->collisions++;
 			}
 
@@ -1097,6 +1111,9 @@ void ConcavePolygonShapeSW::_cull_segment(int p_idx,_SegmentCullParams *p_params
 
 bool ConcavePolygonShapeSW::intersect_segment(const Vector3& p_begin,const Vector3& p_end,Vector3 &r_result, Vector3 &r_normal) const {
 
+	if (faces.size()==0)
+		return false;
+
 	// unlock data
 	DVector<Face>::Read fr=faces.read();
 	DVector<Vector3>::Read vr=vertices.read();
@@ -1107,7 +1124,7 @@ bool ConcavePolygonShapeSW::intersect_segment(const Vector3& p_begin,const Vecto
 	params.from=p_begin;
 	params.to=p_end;
 	params.collisions=0;
-	params.normal=(p_end-p_begin).normalized();
+	params.dir=(p_end-p_begin).normalized();
 
 	params.faces=fr.ptr();
 	params.vertices=vr.ptr();
@@ -1165,6 +1182,8 @@ void ConcavePolygonShapeSW::_cull(int p_idx,_CullParams *p_params) const {
 void ConcavePolygonShapeSW::cull(const AABB& p_local_aabb,Callback p_callback,void* p_userdata) const {
 
 	// make matrix local to concave
+	if (faces.size()==0)
+		return;
 
 	AABB local_aabb=p_local_aabb;
 

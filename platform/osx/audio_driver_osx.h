@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -39,6 +39,7 @@ class AudioDriverOSX : public AudioDriverSW {
 
 	AudioComponentInstance audio_unit;
 	bool active;
+	Mutex *mutex;
 
 	int channels;
 	int32_t* samples_in;
@@ -64,6 +65,9 @@ public:
 	virtual void lock();
 	virtual void unlock();
 	virtual void finish();
+
+	AudioDriverOSX();
+	~AudioDriverOSX();
 };
 
 #endif

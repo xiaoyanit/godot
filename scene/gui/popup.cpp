@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -38,18 +38,31 @@ void Popup::_input_event(InputEvent p_event) {
 
 void Popup::_notification(int p_what) {
 	
-
+	if (p_what==NOTIFICATION_VISIBILITY_CHANGED) {
+		if (popped_up && !is_visible()) {
+			popped_up=false;
+			notification(NOTIFICATION_POPUP_HIDE);
+			emit_signal("popup_hide");
+		}
+	}
 }
 
 void Popup::_fix_size() {
 	
 	Control *window = get_window();
 	ERR_FAIL_COND(!window);
-	
+
+#if 0
 	Point2 pos = get_pos();
 	Size2 size = get_size();		
 	Point2 window_size = window==this ? get_parent_area_size()  :window->get_size();
+#else
 
+	Point2 pos = get_global_pos();
+	Size2 size = get_size();
+	Point2 window_size = get_viewport_rect().size;
+
+#endif
 	if (pos.x+size.width > window_size.width)
 		pos.x=window_size.width-size.width;
 	if (pos.x<0)
@@ -59,21 +72,28 @@ void Popup::_fix_size() {
 		pos.y=window_size.height-size.height;
 	if (pos.y<0)
 		pos.y=0;
+#if 0
 	if (pos!=get_pos())
 		set_pos(pos);
+#else
+	if (pos!=get_pos())
+		set_global_pos(pos);
+
+#endif
 
 }
 
 
-void Popup::popup_centered_minsize(const Size2& p_minsize) {
+void Popup::set_as_minsize() {
 
-
-	Size2 total_minsize=p_minsize;
+	Size2 total_minsize;
 
 	for(int i=0;i<get_child_count();i++) {
 
 		Control *c=get_child(i)->cast_to<Control>();
 		if (!c)
+			continue;
+		if (c->is_hidden())
 			continue;
 
 		Size2 minsize = c->get_combined_minimum_size();
@@ -95,12 +115,58 @@ void Popup::popup_centered_minsize(const Size2& p_minsize) {
 
 		}
 
+		print_line(String(c->get_type())+": "+minsize);
+
+		total_minsize.width = MAX( total_minsize.width, minsize.width );
+		total_minsize.height = MAX( total_minsize.height, minsize.height );
+	}
+
+	set_size(total_minsize);
+
+}
+
+
+void Popup::popup_centered_minsize(const Size2& p_minsize) {
+
+
+	Size2 total_minsize=p_minsize;
+
+	for(int i=0;i<get_child_count();i++) {
+
+		Control *c=get_child(i)->cast_to<Control>();
+		if (!c)
+			continue;
+		if (c->is_hidden())
+			continue;
+
+		Size2 minsize = c->get_combined_minimum_size();
+
+		for(int j=0;j<2;j++) {
+
+			Margin m_beg = Margin(0+j);
+			Margin m_end = Margin(2+j);
+
+			float margin_begin = c->get_margin(m_beg);
+			float margin_end = c->get_margin(m_end);
+			AnchorType anchor_begin = c->get_anchor(m_beg);
+			AnchorType anchor_end = c->get_anchor(m_end);
+
+			if (anchor_begin == ANCHOR_BEGIN)
+				minsize[j]+=margin_begin;
+			if (anchor_end == ANCHOR_END)
+				minsize[j]+=margin_end;
+
+		}
+
+		print_line(String(c->get_type())+": "+minsize);
+
 		total_minsize.width = MAX( total_minsize.width, minsize.width );
 		total_minsize.height = MAX( total_minsize.height, minsize.height );
 	}
 
 
 	popup_centered( total_minsize );
+	popped_up=true;
 
 }
 
@@ -127,6 +193,7 @@ void Popup::popup_centered(const Size2& p_size) {
 
 	_post_popup();
 	notification(NOTIFICATION_POST_POPUP);
+	popped_up=true;
 }
 
 void Popup::popup_centered_ratio(float p_screen_ratio) {
@@ -153,6 +220,7 @@ void Popup::popup_centered_ratio(float p_screen_ratio) {
 
 	_post_popup();
 	notification(NOTIFICATION_POST_POPUP);
+	popped_up=true;
 
 }
 
@@ -171,6 +239,7 @@ void Popup::popup() {
 
 	_post_popup();
 	notification(NOTIFICATION_POST_POPUP);
+	popped_up=true;
 }
 
 void Popup::set_exclusive(bool p_exclusive) {
@@ -193,8 +262,11 @@ void Popup::_bind_methods() {
 	ObjectTypeDB::bind_method(_MD("set_exclusive","enable"),&Popup::set_exclusive);
 	ObjectTypeDB::bind_method(_MD("is_exclusive"),&Popup::is_exclusive);
 	ADD_SIGNAL( MethodInfo("about_to_show") );
+	ADD_SIGNAL( MethodInfo("popup_hide") );
 	ADD_PROPERTY( PropertyInfo( Variant::BOOL, "popup/exclusive"), _SCS("set_exclusive"),_SCS("is_exclusive") );
 	BIND_CONSTANT(NOTIFICATION_POST_POPUP);
+	BIND_CONSTANT(NOTIFICATION_POPUP_HIDE);
+
 
 }
 
@@ -202,6 +274,7 @@ Popup::Popup() {
 
 	set_as_toplevel(true);
 	exclusive=false;
+	popped_up=false;
 	hide();
 }
 

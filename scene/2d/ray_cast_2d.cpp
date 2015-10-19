@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,7 +33,7 @@
 void RayCast2D::set_cast_to(const Vector2& p_point) {
 
 	cast_to=p_point;
-	if (is_inside_scene() && get_scene()->is_editor_hint())
+	if (is_inside_tree() && get_tree()->is_editor_hint())
 		update();
 
 }
@@ -41,6 +41,26 @@ void RayCast2D::set_cast_to(const Vector2& p_point) {
 Vector2 RayCast2D::get_cast_to() const{
 
 	return cast_to;
+}
+
+void RayCast2D::set_layer_mask(uint32_t p_mask) {
+
+	layer_mask=p_mask;
+}
+
+uint32_t RayCast2D::get_layer_mask() const {
+
+	return layer_mask;
+}
+
+void RayCast2D::set_type_mask(uint32_t p_mask) {
+
+	type_mask=p_mask;
+}
+
+uint32_t RayCast2D::get_type_mask() const {
+
+	return type_mask;
 }
 
 bool RayCast2D::is_colliding() const{
@@ -72,7 +92,7 @@ Vector2 RayCast2D::get_collision_normal() const{
 void RayCast2D::set_enabled(bool p_enabled) {
 
 	enabled=p_enabled;
-	if (is_inside_scene() && !get_scene()->is_editor_hint())
+	if (is_inside_tree() && !get_tree()->is_editor_hint())
 		set_fixed_process(p_enabled);
 	if (!p_enabled)
 		collided=false;
@@ -91,31 +111,31 @@ void RayCast2D::_notification(int p_what) {
 
 	switch(p_what) {
 
-		case NOTIFICATION_ENTER_SCENE: {
+		case NOTIFICATION_ENTER_TREE: {
 
-			if (enabled && !get_scene()->is_editor_hint())
+			if (enabled && !get_tree()->is_editor_hint())
 				set_fixed_process(true);
 			else
 				set_fixed_process(false);
 
 		} break;
-		case NOTIFICATION_EXIT_SCENE: {
+		case NOTIFICATION_EXIT_TREE: {
 
 			if (enabled)
 				set_fixed_process(false);
 
 		} break;
-#ifdef TOOLS_ENABLED
+
 		case NOTIFICATION_DRAW: {
 
-			if (!get_scene()->is_editor_hint())
+			if (!get_tree()->is_editor_hint()  && !get_tree()->is_debugging_collisions_hint())
 				break;
 			Matrix32 xf;
 			xf.rotate(cast_to.atan2());
 			xf.translate(Vector2(0,cast_to.length()));
 
 			//Vector2 tip = Vector2(0,s->get_length());
-			Color dcol(0.9,0.2,0.2,0.4);
+			Color dcol=get_tree()->get_debug_collisions_color();//0.9,0.2,0.2,0.4);
 			draw_line(Vector2(),cast_to,dcol,3);
 			Vector<Vector2> pts;
 			float tsize=4;
@@ -129,7 +149,7 @@ void RayCast2D::_notification(int p_what) {
 			draw_primitive(pts,cols,Vector<Vector2>()); //small arrow
 
 		} break;
-#endif
+
 
 		case NOTIFICATION_FIXED_PROCESS: {
 
@@ -152,7 +172,7 @@ void RayCast2D::_notification(int p_what) {
 
 			Physics2DDirectSpaceState::RayResult rr;
 
-			if (dss->intersect_ray(gt.get_origin(),gt.xform(to),rr,exclude)) {
+			if (dss->intersect_ray(gt.get_origin(),gt.xform(to),rr,exclude,layer_mask,type_mask)) {
 
 				collided=true;
 				against=rr.collider_id;
@@ -228,8 +248,16 @@ void RayCast2D::_bind_methods() {
 
 	ObjectTypeDB::bind_method(_MD("clear_exceptions"),&RayCast2D::clear_exceptions);
 
+	ObjectTypeDB::bind_method(_MD("set_layer_mask","mask"),&RayCast2D::set_layer_mask);
+	ObjectTypeDB::bind_method(_MD("get_layer_mask"),&RayCast2D::get_layer_mask);
+
+	ObjectTypeDB::bind_method(_MD("set_type_mask","mask"),&RayCast2D::set_type_mask);
+	ObjectTypeDB::bind_method(_MD("get_type_mask"),&RayCast2D::get_type_mask);
+
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL,"enabled"),_SCS("set_enabled"),_SCS("is_enabled"));
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2,"cast_to"),_SCS("set_cast_to"),_SCS("get_cast_to"));
+	ADD_PROPERTY(PropertyInfo(Variant::INT,"layer_mask",PROPERTY_HINT_ALL_FLAGS),_SCS("set_layer_mask"),_SCS("get_layer_mask"));
+	ADD_PROPERTY(PropertyInfo(Variant::INT,"type_mask",PROPERTY_HINT_FLAGS,"Static,Kinematic,Rigid,Character,Area"),_SCS("set_type_mask"),_SCS("get_type_mask"));
 }
 
 RayCast2D::RayCast2D() {
@@ -238,5 +266,7 @@ RayCast2D::RayCast2D() {
 	against=0;
 	collided=false;
 	against_shape=0;
+	layer_mask=1;
+	type_mask=Physics2DDirectSpaceState::TYPE_MASK_COLLISION;
 	cast_to=Vector2(0,50);
 }

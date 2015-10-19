@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -34,6 +34,7 @@
 #include "script_language.h"
 #include "io/marshalls.h"
 #include "io/compression.h"
+#include "scene/resources/theme.h"
 
 void DocData::merge_from(const DocData& p_data) {
 
@@ -58,6 +59,9 @@ void DocData::merge_from(const DocData& p_data) {
 
 				if (cf.methods[j].name!=m.name)
 					continue;
+				if (cf.methods[j].arguments.size()!=m.arguments.size())
+					continue;
+
 				const MethodDoc &mf = cf.methods[j];
 
 				m.description=mf.description;
@@ -111,6 +115,21 @@ void DocData::merge_from(const DocData& p_data) {
 			}
 		}
 
+		for(int i=0;i<c.theme_properties.size();i++) {
+
+			PropertyDoc &p = c.theme_properties[i];
+
+			for(int j=0;j<cf.theme_properties.size();j++) {
+
+				if (cf.theme_properties[j].name!=p.name)
+					continue;
+				const PropertyDoc &pf = cf.theme_properties[j];
+
+				p.description=pf.description;
+				break;
+			}
+		}
+
 	}
 
 }
@@ -118,9 +137,9 @@ void DocData::merge_from(const DocData& p_data) {
 void DocData::generate(bool p_basic_types) {
 
 
-	List<String> classes;
+	List<StringName> classes;
 	ObjectTypeDB::get_type_list(&classes);
-	classes.sort();
+	classes.sort_custom<StringName::AlphCompare>();
 
 	while(classes.size()) {
 
@@ -170,8 +189,10 @@ void DocData::generate(bool p_basic_types) {
 					arginfo=E->get().return_val;
 					if (arginfo.type==Variant::NIL)
 						continue;
-
-					method.return_type=(arginfo.hint==PROPERTY_HINT_RESOURCE_TYPE)?arginfo.hint_string:Variant::get_type_name(arginfo.type);
+					if (m && m->get_return_type()!=StringName())
+						method.return_type=m->get_return_type();
+					else
+						method.return_type=(arginfo.hint==PROPERTY_HINT_RESOURCE_TYPE)?arginfo.hint_string:Variant::get_type_name(arginfo.type);
 
 				} else {
 
@@ -334,6 +355,60 @@ void DocData::generate(bool p_basic_types) {
 			c.constants.push_back(constant);
 		}
 
+		//theme stuff
+
+		{
+			List<StringName> l;
+			Theme::get_default()->get_constant_list(cname,&l);
+			for (List<StringName>::Element*E=l.front();E;E=E->next()) {
+
+				PropertyDoc pd;
+				pd.name=E->get();
+				pd.type="int";
+				c.theme_properties.push_back(pd);
+			}
+
+			l.clear();
+			Theme::get_default()->get_color_list(cname,&l);
+			for (List<StringName>::Element*E=l.front();E;E=E->next()) {
+
+				PropertyDoc pd;
+				pd.name=E->get();
+				pd.type="Color";
+				c.theme_properties.push_back(pd);
+			}
+
+			l.clear();
+			Theme::get_default()->get_icon_list(cname,&l);
+			for (List<StringName>::Element*E=l.front();E;E=E->next()) {
+
+				PropertyDoc pd;
+				pd.name=E->get();
+				pd.type="Texture";
+				c.theme_properties.push_back(pd);
+			}
+			l.clear();
+			Theme::get_default()->get_font_list(cname,&l);
+			for (List<StringName>::Element*E=l.front();E;E=E->next()) {
+
+				PropertyDoc pd;
+				pd.name=E->get();
+				pd.type="Font";
+				c.theme_properties.push_back(pd);
+			}
+			l.clear();
+			Theme::get_default()->get_stylebox_list(cname,&l);
+			for (List<StringName>::Element*E=l.front();E;E=E->next()) {
+
+				PropertyDoc pd;
+				pd.name=E->get();
+				pd.type="StyleBox";
+				c.theme_properties.push_back(pd);
+			}
+
+		}
+
+
 		classes.pop_front();
 	}
 
@@ -472,7 +547,7 @@ void DocData::generate(bool p_basic_types) {
 			Globals::Singleton &s=E->get();
 			pd.name=s.name;
 			pd.type=s.ptr->get_type();
-			while (ObjectTypeDB::type_inherits_from(pd.type)!="Object")
+			while (String(ObjectTypeDB::type_inherits_from(pd.type))!="Object")
 				pd.type=ObjectTypeDB::type_inherits_from(pd.type);
 			if (pd.type.begins_with("_"))
 				pd.type=pd.type.substr(1,pd.type.length());
@@ -654,6 +729,7 @@ Error DocData::_load(Ref<XMLParser> parser) {
 		class_list[name]=ClassDoc();
 		ClassDoc& c = class_list[name];
 
+//		print_line("class: "+name);
 		c.name=name;
 		if (parser->has_attribute("inherits"))
 			c.inherits = parser->get_attribute_value("inherits");
@@ -711,6 +787,35 @@ Error DocData::_load(Ref<XMLParser> parser) {
 							}
 
 						} else if (parser->get_node_type() == XMLParser::NODE_ELEMENT_END && parser->get_node_name()=="members")
+							break; //end of <constants>
+					}
+
+				} else if (name=="theme_items") {
+
+					while(parser->read()==OK) {
+
+						if (parser->get_node_type() == XMLParser::NODE_ELEMENT)	{
+
+							String name = parser->get_node_name();
+
+							if (name=="theme_item") {
+
+								PropertyDoc prop;
+
+								ERR_FAIL_COND_V(!parser->has_attribute("name"),ERR_FILE_CORRUPT);
+								prop.name=parser->get_attribute_value("name");
+								ERR_FAIL_COND_V(!parser->has_attribute("type"),ERR_FILE_CORRUPT);
+								prop.type=parser->get_attribute_value("type");
+								parser->read();
+								if (parser->get_node_type()==XMLParser::NODE_TEXT)
+									prop.description=parser->get_node_data().strip_edges();
+								c.theme_properties.push_back(prop);
+							} else {
+								ERR_EXPLAIN("Invalid tag in doc file: "+name);
+								ERR_FAIL_V(ERR_FILE_CORRUPT);
+							}
+
+						} else if (parser->get_node_type() == XMLParser::NODE_ELEMENT_END && parser->get_node_name()=="theme_items")
 							break; //end of <constants>
 					}
 
@@ -812,9 +917,9 @@ Error DocData::save(const String& p_path) {
 
 			String qualifiers;
 			if (m.qualifiers!="")
-				qualifiers+="qualifiers=\""+m.qualifiers.xml_escape()+"\"";
+				qualifiers+=" qualifiers=\""+m.qualifiers.xml_escape()+"\"";
 
-			_write_string(f,2,"<method name=\""+m.name+"\" "+qualifiers+" >");
+			_write_string(f,2,"<method name=\""+m.name+"\""+qualifiers+">");
 
 			if (m.return_type!="") {
 
@@ -897,6 +1002,20 @@ Error DocData::save(const String& p_path) {
 		}
 
 		_write_string(f,1,"</constants>");
+
+		if (c.theme_properties.size()) {
+			_write_string(f,1,"<theme_items>");
+			for(int i=0;i<c.theme_properties.size();i++) {
+
+
+				PropertyDoc &p=c.theme_properties[i];
+				_write_string(f,2,"<theme_item name=\""+p.name+"\" type=\""+p.type+"\">");
+				_write_string(f,2,"</theme_item>");
+
+			}
+			_write_string(f,1,"</theme_items>");
+		}
+
 		_write_string(f,0,"</class>");
 
 	}

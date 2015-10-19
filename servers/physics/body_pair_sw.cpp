@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -29,7 +29,7 @@
 #include "body_pair_sw.h"
 #include "collision_solver_sw.h"
 #include "space_sw.h"
-
+#include "os/os.h"
 
 /*
 #define NO_ACCUMULATE_IMPULSES
@@ -172,8 +172,59 @@ void BodyPairSW::validate_contacts() {
 	}
 }
 
+
+bool BodyPairSW::_test_ccd(float p_step,BodySW *p_A, int p_shape_A,const Transform& p_xform_A,BodySW *p_B, int p_shape_B,const Transform& p_xform_B) {
+
+
+
+	Vector3 motion = p_A->get_linear_velocity()*p_step;
+	real_t mlen = motion.length();
+	if (mlen<CMP_EPSILON)
+		return false;
+
+	Vector3 mnormal = motion / mlen;
+
+	real_t min,max;
+	p_A->get_shape(p_shape_A)->project_range(mnormal,p_xform_A,min,max);
+	bool fast_object = mlen > (max-min)*0.3; //going too fast in that direction
+
+	if (!fast_object) { //did it move enough in this direction to even attempt raycast? let's say it should move more than 1/3 the size of the object in that axis
+		return false;
+	}
+
+	//cast a segment from support in motion normal, in the same direction of motion by motion length
+	//support is the worst case collision point, so real collision happened before
+	Vector3 s=p_A->get_shape(p_shape_A)->get_support(p_xform_A.basis.xform(mnormal).normalized());
+	Vector3 from = p_xform_A.xform(s);
+	Vector3 to = from + motion;
+
+	Transform from_inv = p_xform_B.affine_inverse();
+
+	Vector3 local_from = from_inv.xform(from-mnormal*mlen*0.1); //start from a little inside the bounding box
+	Vector3 local_to = from_inv.xform(to);
+
+	Vector3 rpos,rnorm;
+	if (!p_B->get_shape(p_shape_B)->intersect_segment(local_from,local_to,rpos,rnorm)) {
+		return false;
+	}
+
+	//shorten the linear velocity so it does not hit, but gets close enough, next frame will hit softly or soft enough
+	Vector3 hitpos = p_xform_B.xform(rpos);
+
+	float newlen = hitpos.distance_to(from)-(max-min)*0.01;
+	p_A->set_linear_velocity((mnormal*newlen)/p_step);
+
+	return true;
+}
+
+
 bool BodyPairSW::setup(float p_step) {
 
+	//cannot collide
+	if ((A->get_layer_mask()&B->get_layer_mask())==0 || A->has_exception(B->get_self()) || B->has_exception(A->get_self()) || (A->get_mode()<=PhysicsServer::BODY_MODE_KINEMATIC && B->get_mode()<=PhysicsServer::BODY_MODE_KINEMATIC && A->get_max_contacts_reported()==0 && B->get_max_contacts_reported()==0)) {
+		collided=false;
+		return false;
+	}
 
 	offset_B = B->get_transform().get_origin() - A->get_transform().get_origin();
 
@@ -193,14 +244,23 @@ bool BodyPairSW::setup(float p_step) {
 	bool collided = CollisionSolverSW::solve_static(shape_A_ptr,xform_A,shape_B_ptr,xform_B,_contact_added_callback,this,&sep_axis);
 	this->collided=collided;
 
-	if (!collided)
-		return false;
 
+	if (!collided) {
 
-	//cannot collide
-	if (A->has_exception(B->get_self()) || B->has_exception(A->get_self()) || (A->get_mode()<=PhysicsServer::BODY_MODE_KINEMATIC && B->get_mode()<=PhysicsServer::BODY_MODE_KINEMATIC)) {
+		//test ccd (currently just a raycast)
+
+		if (A->is_continuous_collision_detection_enabled() && A->get_mode()>PhysicsServer::BODY_MODE_KINEMATIC && B->get_mode()<=PhysicsServer::BODY_MODE_KINEMATIC) {
+			_test_ccd(p_step,A,shape_A,xform_A,B,shape_B,xform_B);
+		}
+
+		if (B->is_continuous_collision_detection_enabled() && B->get_mode()>PhysicsServer::BODY_MODE_KINEMATIC && A->get_mode()<=PhysicsServer::BODY_MODE_KINEMATIC) {
+			_test_ccd(p_step,B,shape_B,xform_B,A,shape_A,xform_A);
+		}
+
 		return false;
 	}
+
+
 
 	real_t max_penetration = space->get_contact_max_allowed_penetration();
 
@@ -217,6 +277,7 @@ bool BodyPairSW::setup(float p_step) {
 	}
 
 
+
 	real_t inv_dt = 1.0/p_step;
 
 	for(int i=0;i<contact_count;i++) {
@@ -227,6 +288,7 @@ bool BodyPairSW::setup(float p_step) {
 		Vector3 global_A = xform_Au.xform(c.local_A);
 		Vector3 global_B = xform_Bu.xform(c.local_B);
 
+
 		real_t depth = c.normal.dot(global_A - global_B);
 
 		if (depth<=0) {
@@ -235,6 +297,16 @@ bool BodyPairSW::setup(float p_step) {
 		}
 
 		c.active=true;
+
+#ifdef DEBUG_ENABLED
+
+
+		if (space->is_debugging_contacts()) {
+			space->add_debug_contact(global_A+offset_A);
+			space->add_debug_contact(global_B+offset_A);
+		}
+#endif
+
 
 		int gather_A = A->can_report_contacts();
 		int gather_B = B->can_report_contacts();
@@ -263,6 +335,14 @@ bool BodyPairSW::setup(float p_step) {
 			Vector3 crA = A->get_angular_velocity().cross( c.rB ) + A->get_linear_velocity();
 			B->add_contact(global_B,c.normal,depth,shape_B,global_A,shape_A,A->get_instance_id(),A->get_self(),crA);
 		}
+
+		if (A->is_shape_set_as_trigger(shape_A) || B->is_shape_set_as_trigger(shape_B) || (A->get_mode()<=PhysicsServer::BODY_MODE_KINEMATIC && B->get_mode()<=PhysicsServer::BODY_MODE_KINEMATIC)) {
+			c.active=false;
+			collided=false;
+			continue;
+
+		}
+
 
 		c.active=true;
 
@@ -294,6 +374,17 @@ bool BodyPairSW::setup(float p_step) {
 		Vector3 jb_vec = c.normal * c.acc_bias_impulse;
 		A->apply_bias_impulse( c.rA, -jb_vec );
 		B->apply_bias_impulse( c.rB, jb_vec );
+
+		c.bounce = MAX(A->get_bounce(),B->get_bounce());
+		if (c.bounce) {
+
+			Vector3 crA = A->get_angular_velocity().cross( c.rA );
+			Vector3 crB = B->get_angular_velocity().cross( c.rB );
+			Vector3 dv = B->get_linear_velocity() + crB - A->get_linear_velocity() - crA;
+			//normal impule
+			c.bounce = c.bounce * dv.dot(c.normal);
+		}
+
 
 	}
 
@@ -347,8 +438,7 @@ void BodyPairSW::solve(float p_step) {
 
 		if (Math::abs(vn)>MIN_VELOCITY) {
 
-			real_t bounce=0;
-			real_t jn = (-bounce -vn)*c.mass_normal;
+			real_t jn = -(c.bounce + vn)*c.mass_normal;
 			real_t jnOld = c.acc_normal_impulse;
 			c.acc_normal_impulse = MAX(jnOld + jn, 0.0f);
 

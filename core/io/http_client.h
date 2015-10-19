@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -137,6 +137,7 @@ private:
 	int conn_port;
 	String conn_host;
 	bool ssl;
+	bool ssl_verify_host;
 	bool blocking;
 
 	Vector<uint8_t> response_str;
@@ -156,12 +157,15 @@ private:
 	static void _bind_methods();
 	StringArray _get_response_headers();
 	Dictionary _get_response_headers_as_dictionary();
-	ByteArray tmp_read;
+	int read_chunk_size;
+
+	Error _get_http_data(uint8_t* p_buffer, int p_bytes,int &r_received);
+
 public:
 
 
 	Error connect_url(const String& p_url); //connects to a full url and perform request
-	Error connect(const String &p_host,int p_port,bool p_ssl=false);
+	Error connect(const String &p_host,int p_port,bool p_ssl=false,bool p_verify_host=true);
 
 	void set_connection(const Ref<StreamPeer>& p_connection);
 
@@ -184,6 +188,7 @@ public:
 	void set_blocking_mode(bool p_enable); //useful mostly if running in a thread
 	bool is_blocking_mode_enabled() const;
 
+	void set_read_chunk_size(int p_size);
 
 	Error poll();
 

@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -56,6 +56,17 @@ String DirAccess::_get_root_string() const {
 	return "";
 }
 
+int DirAccess::get_current_drive() {
+
+	String path = get_current_dir().to_lower();
+	for(int i=0;i<get_drive_count();i++) {
+		String d = get_drive(i).to_lower();
+		if (path.begins_with(d))
+			return i;
+	}
+
+	return 0;
+}
 
 static Error _erase_recursive(DirAccess *da) {
 
@@ -130,35 +141,46 @@ Error DirAccess::make_dir_recursive(String p_dir) {
 	if (p_dir.length() < 1) {
 		return OK;
 	};
+
+	String full_dir;
 	Globals* g = Globals::get_singleton();
-	String cur = normalize_path(g->globalize_path(get_current_dir()));
-	if (cur[cur.length()-1] != '/') {
-		cur = cur + "/";
-	};
 
-	String dir = normalize_path(g->globalize_path(p_dir));
-	if (dir.length() < 1) {
-		return OK;
-	};
-	if (dir[dir.length()-1] != '/') {
-		dir = dir + "/";
-	};
+	if (!p_dir.is_abs_path()) {
+		//append current
 
-	ERR_FAIL_COND_V(dir.find(cur) != 0, FAILED);
+		String cur = normalize_path(g->globalize_path(get_current_dir()));
+		if (cur[cur.length()-1] != '/') {
+			cur = cur + "/";
+		};
 
-	String rel = dir.substr(cur.length(), (dir.length() - cur.length()));
+		full_dir=(cur+"/"+p_dir).simplify_path();
+	} else {
+		//validate and use given
+		String dir = normalize_path(g->globalize_path(p_dir));
+		if (dir.length() < 1) {
+			return OK;
+		};
+		if (dir[dir.length()-1] != '/') {
+			dir = dir + "/";
+		};
+		full_dir=dir;
+	}
+
+	//int slices = full_dir.get_slice_count("/");
 
 	int pos = 0;
-	while (pos < rel.length()) {
+	while (pos < full_dir.length()) {
 
-		int n = rel.find("/", pos);
+		int n = full_dir.find("/", pos);
 		if (n < 0) {
-			n = rel.length();
+			n = full_dir.length();
 		};
 		pos = n + 1;
 
 		if (pos > 1) {
-			Error err = make_dir(rel.substr(0, pos -1));
+			String to_create = full_dir.substr(0, pos -1);
+			//print_line("MKDIR: "+to_create);
+			Error err = make_dir(to_create);
 			if (err != OK && err != ERR_ALREADY_EXISTS) {
 
 				ERR_FAIL_V(err);
@@ -386,6 +408,15 @@ Error DirAccess::copy(String p_from,String p_to) {
 	memdelete(fdst);
 	
 	return err;
+}
+
+bool DirAccess::exists(String p_dir) {
+
+	DirAccess* da = DirAccess::create_for_path(p_dir);
+	bool valid = da->change_dir(p_dir)==OK;
+	memdelete(da);
+	return valid;
+
 }
 
 DirAccess::DirAccess(){

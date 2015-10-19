@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -39,6 +39,12 @@ struct IP_Address {
 	};
 
 	//operator Variant() const;
+	bool operator==(const IP_Address& p_ip) const {
+		return host==p_ip.host;
+	}
+	bool operator!=(const IP_Address& p_ip) const {
+		return host!=p_ip.host;
+	}
 	operator String() const;
 	IP_Address(const String& p_string);
 	IP_Address(uint8_t p_a,uint8_t p_b,uint8_t p_c,uint8_t p_d);

@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,9 +32,9 @@ void ReferenceFrame::_notification(int p_what) {
 
 	if (p_what==NOTIFICATION_DRAW) {
 
-		if (!is_inside_scene())
+		if (!is_inside_tree())
 			return;
-		if (get_scene()->is_editor_hint())
+		if (get_tree()->is_editor_hint())
 			draw_style_box(get_stylebox("border"),Rect2(Point2(),get_size())) ;
 	}
 }

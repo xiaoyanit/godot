@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -44,7 +44,7 @@ public class GodotLib {
      * @param height the current view height
      */
 
-     public static native void initialize(Godot p_instance,boolean need_reload_hook,String[] p_cmdline);
+     public static native void initialize(Godot p_instance,boolean need_reload_hook,String[] p_cmdline,Object p_asset_manager);
      public static native void resize(int width, int height,boolean reload);
      public static native void newcontext();
      public static native void quit();
@@ -52,6 +52,8 @@ public class GodotLib {
      public static native void touch(int what,int pointer,int howmany, int[] arr);
      public static native void accelerometer(float x, float y, float z);
 	 public static native void key(int p_scancode, int p_unicode_char, boolean p_pressed);
+	 public static native void joybutton(int p_device, int p_but, boolean p_pressed);
+	 public static native void joyaxis(int p_device, int p_axis, float p_value);
      public static native void focusin();
      public static native void focusout();
      public static native void audio();

@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -39,6 +39,7 @@ class Popup : public Control {
 	OBJ_TYPE( Popup, Control );
 
 	bool exclusive;
+	bool popped_up;
 	
 protected:
 
@@ -51,7 +52,8 @@ protected:
 public:
 
 	enum {
-		NOTIFICATION_POST_POPUP=80
+		NOTIFICATION_POST_POPUP=80,
+		NOTIFICATION_POPUP_HIDE=81
 	};
 	
 	void set_exclusive(bool p_exclusive);
@@ -60,6 +62,7 @@ public:
 	void popup_centered_ratio(float p_screen_ratio=0.75);
 	void popup_centered(const Size2& p_size=Size2());
 	void popup_centered_minsize(const Size2& p_minsize=Size2());
+	void set_as_minsize();
 	virtual void popup();
 
 	

@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,6 +31,7 @@
 
 #include "scene/2d/node_2d.h"
 #include "scene/resources/texture.h"
+#include "scene/resources/color_ramp.h"
 
 class Particles2D;
 class ParticleAttractor2D : public Node2D {
@@ -87,7 +88,7 @@ public:
 	enum Parameter {
 		PARAM_DIRECTION,
 		PARAM_SPREAD,
-		PARAM_LINEAR_VELOCITY,
+		PARAM_LINEAR_VELOCITY,		
 		PARAM_SPIN_VELOCITY,
 		PARAM_ORBIT_VELOCITY,
 		PARAM_GRAVITY_DIRECTION,
@@ -95,9 +96,12 @@ public:
 		PARAM_RADIAL_ACCEL,
 		PARAM_TANGENTIAL_ACCEL,
 		PARAM_DAMPING,
+		PARAM_INITIAL_ANGLE,
 		PARAM_INITIAL_SIZE,
 		PARAM_FINAL_SIZE,
 		PARAM_HUE_VARIATION,
+		PARAM_ANIM_SPEED_SCALE,
+		PARAM_ANIM_INITIAL_POS,
 		PARAM_MAX
 	};
 
@@ -116,16 +120,12 @@ private:
 		Point2 pos;
 		Vector2 velocity;
 		float rot;
+		float frame;
 		uint32_t seed;
-		Particle() { active=false; seed=123465789; rot=0;}
+		Particle() { active=false; seed=123465789; rot=0; frame=0;}
 	};
 
 	Vector<Particle> particles;
-	int color_phase_count;
-	struct ColorPhase {
-		Color color;
-		float pos;
-	} color_phases[MAX_COLOR_PHASES];
 
 	struct AttractorCache {
 
@@ -145,6 +145,8 @@ private:
 	float time_scale;
 	bool flip_h;
 	bool flip_v;
+	int h_frames;
+	int v_frames;
 	Point2 emissor_offset;
 	Vector2 initial_velocity;
 	Vector2 extents;
@@ -155,6 +157,9 @@ private:
 
 	Ref<Texture> texture;
 
+	//If no color ramp is set then default color is used. Created as simple alternative to color_ramp.
+	Color default_color;
+	Ref<ColorRamp> color_ramp;
 
 	void testee(int a, int b, int c, int d, int e);
 	void _process_particles(float p_delta);
@@ -205,6 +210,13 @@ public:
 	void set_flip_v(bool p_flip);
 	bool is_flipped_v() const;
 
+
+	void set_h_frames(int p_frames);
+	int get_h_frames() const;
+
+	void set_v_frames(int p_frames);
+	int get_v_frames() const;
+
 	void set_color_phases(int p_phases);
 	int get_color_phases() const;
 
@@ -216,6 +228,12 @@ public:
 
 	void set_texture(const Ref<Texture>& p_texture);
 	Ref<Texture> get_texture() const;
+
+	void set_color(const Color& p_color);
+	Color get_color() const;
+
+	void set_color_ramp(const Ref<ColorRamp>& p_texture);
+	Ref<ColorRamp> get_color_ramp() const;
 
 	void set_emissor_offset(const Point2& p_offset);
 	Point2 get_emissor_offset() const;

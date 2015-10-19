@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,7 +31,8 @@
 #include <stdio.h>
 
 static PrintHandlerList *print_handler_list=NULL;
-
+bool _print_line_enabled=true;
+bool _print_error_enabled = true;
 
 void add_print_handler(PrintHandlerList *p_handler) {
 
@@ -74,6 +75,9 @@ void remove_print_handler(PrintHandlerList *p_handler) {
 
 
 void print_line(String p_string) {
+
+	if (!_print_line_enabled)
+		return;
 
 	OS::get_singleton()->print("%s\n",p_string.utf8().get_data());
 

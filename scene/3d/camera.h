@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -46,6 +46,11 @@ public:
 		PROJECTION_ORTHOGONAL
 	};
 
+	enum KeepAspect {
+		KEEP_WIDTH,
+		KEEP_HEIGHT
+	};
+
 private:
 
 	bool force_change;
@@ -56,10 +61,14 @@ private:
 	float fov;
 	float size;
 	float near,far;
-	bool vaspect;
+	float v_offset;
+	float h_offset;
+	KeepAspect keep_aspect;
 	
 	RID camera;
 	RID scenario_id;
+
+	String camera_group;
 
 	uint32_t layers;
 
@@ -69,6 +78,7 @@ private:
 	virtual bool _can_gizmo_scale() const;
 	virtual RES _get_gizmo_geometry() const;
 
+	void _camera_make_next_current(Node *p_exclude);
 
 
 	//void _camera_make_current(Node *p_camera);
@@ -116,6 +126,7 @@ public:
 	Vector3 project_ray_origin(const Point2& p_point) const;
 	Vector3 project_local_ray_normal(const Point2& p_point) const;
 	Point2 unproject_position(const Vector3& p_pos) const;
+	bool is_position_behind(const Vector3& p_pos) const;
 	Vector3 project_position(const Point2& p_point) const;
 
 	void set_visible_layers(uint32_t p_layers);
@@ -126,11 +137,15 @@ public:
 	void set_environment(const Ref<Environment>& p_environment);
 	Ref<Environment> get_environment() const;
 
-	void set_use_vertical_aspect(bool p_enable);
-	bool is_using_vertical_aspect() const;
+	void set_keep_aspect_mode(KeepAspect p_aspect);
+	KeepAspect get_keep_aspect_mode() const;
 
-	void look_at(const Vector3& p_target, const Vector3& p_up_normal);
-	void look_at_from_pos(const Vector3& p_pos,const Vector3& p_target, const Vector3& p_up_normal);
+
+	void set_v_offset(float p_offset);
+	float get_v_offset() const;
+
+	void set_h_offset(float p_offset);
+	float get_h_offset() const;
 
 
 	Camera();	
@@ -140,5 +155,6 @@ public:
 
 
 VARIANT_ENUM_CAST( Camera::Projection );
+VARIANT_ENUM_CAST( Camera::KeepAspect );
 
 #endif

@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -43,6 +43,7 @@ void EditorHelpSearch::popup(const String& p_term) {
 	if (p_term!="") {
 		search_box->set_text(p_term);
 		search_box->select_all();
+		_update_search();
 	} else
 		search_box->clear();
 	search_box->grab_focus();
@@ -70,7 +71,6 @@ void EditorHelpSearch::_sbox_input(const InputEvent& p_ie) {
 
 void EditorHelpSearch::_update_search() {
 
-
 	search_options->clear();
 	search_options->set_hide_root(true);
 
@@ -79,7 +79,7 @@ void EditorHelpSearch::_update_search() {
 	_parse_fs(EditorFileSystem::get_singleton()->get_filesystem());
 */
 
-	List<String> type_list;
+	List<StringName> type_list;
 	ObjectTypeDB::get_type_list(&type_list);
 
 	DocData *doc=EditorHelp::get_doc_data();
@@ -123,8 +123,10 @@ void EditorHelpSearch::_update_search() {
 			cicon=def_icon;
 
 		for(int i=0;i<c.methods.size();i++) {
-
-			if (c.methods[i].name.findn(term)!=-1) {
+			if( (term.begins_with(".") && c.methods[i].name.begins_with(term.right(1)))
+				|| (term.ends_with("(") && c.methods[i].name.ends_with(term.left(term.length()-1).strip_edges()))
+				|| (term.begins_with(".") && term.ends_with("(") && c.methods[i].name==term.substr(1,term.length()-2).strip_edges())
+				|| c.methods[i].name.findn(term)!=-1) {
 
 				TreeItem *item = search_options->create_item(root);
 				item->set_metadata(0,"class_method:"+E->key()+":"+c.methods[i].name);
@@ -165,6 +167,18 @@ void EditorHelpSearch::_update_search() {
 				item->set_icon(0,cicon);
 			}
 		}
+
+		for(int i=0;i<c.theme_properties.size();i++) {
+
+			if (c.theme_properties[i].name.findn(term)!=-1) {
+
+				TreeItem *item = search_options->create_item(root);
+				item->set_metadata(0,"class_theme_item:"+E->key()+":"+c.theme_properties[i].name);
+				item->set_text(0,E->key()+"."+c.theme_properties[i].name+" (Theme Item)");
+				item->set_icon(0,cicon);
+			}
+		}
+
 
 	}
 
@@ -249,13 +263,14 @@ void EditorHelpSearch::_confirmed() {
 
 	String mdata=ti->get_metadata(0);
 	emit_signal("go_to_help",mdata);
+	editor->call("_editor_select",3); // in case EditorHelpSearch beeen invoked on top of other editor window
 	// go to that
 	hide();
 }
 
 void EditorHelpSearch::_notification(int p_what) {
 
-	if (p_what==NOTIFICATION_ENTER_SCENE) {
+	if (p_what==NOTIFICATION_ENTER_TREE) {
 
 		connect("confirmed",this,"_confirmed");
 		_update_search();
@@ -278,7 +293,7 @@ void EditorHelpSearch::_bind_methods() {
 	ObjectTypeDB::bind_method(_MD("_text_changed"),&EditorHelpSearch::_text_changed);
 	ObjectTypeDB::bind_method(_MD("_confirmed"),&EditorHelpSearch::_confirmed);
 	ObjectTypeDB::bind_method(_MD("_sbox_input"),&EditorHelpSearch::_sbox_input);
-	ObjectTypeDB::bind_method(_MD("_update_search"),&EditorHelpSearch::_sbox_input);
+	ObjectTypeDB::bind_method(_MD("_update_search"),&EditorHelpSearch::_update_search);
 
 	ADD_SIGNAL(MethodInfo("go_to_help"));
 
@@ -318,10 +333,14 @@ DocData *EditorHelp::doc=NULL;
 
 void EditorHelp::_unhandled_key_input(const InputEvent& p_ev) {
 
-	if (is_visible() && p_ev.key.mod.control && p_ev.key.scancode==KEY_F) {
+	if (!is_visible())
+		return;
+	if ( p_ev.key.mod.control && p_ev.key.scancode==KEY_F) {
 
 		search->grab_focus();
 		search->select_all();
+	} else if (p_ev.key.mod.shift && p_ev.key.scancode==KEY_F1) {
+		class_search->popup();
 	}
 }
 
@@ -334,7 +353,7 @@ void EditorHelp::_search(const String&) {
 	String stext=search->get_text();
 	bool keep = prev_search==stext && class_list->get_selected() && prev_search_page==class_list->get_selected()->get_text(0);
 
-	class_desc->search(stext);
+	class_desc->search(stext, keep);
 
 	prev_search=stext;
 	if (class_list->get_selected())
@@ -399,7 +418,6 @@ void EditorHelp::_class_list_select(const String& p_select) {
 void EditorHelp::_class_desc_select(const String& p_select) {
 
 	if (p_select.begins_with("#")) {
-
 		_goto_desc(p_select.substr(1,p_select.length()));
 		return;
 	} else if (p_select.begins_with("@")) {
@@ -454,15 +472,19 @@ void EditorHelp::_scroll_changed(double p_scroll) {
 	history[p].scroll=p_scroll;
 }
 
-void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vscr) {
+Error EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vscr) {
 
-	ERR_FAIL_COND(!doc->class_list.has(p_class));
+	//ERR_FAIL_COND(!doc->class_list.has(p_class));
+	if (!doc->class_list.has(p_class))
+		return ERR_DOES_NOT_EXIST;
 
 
 	if (tree_item_map.has(p_class)) {
+		select_locked = true;
 		tree_item_map[p_class]->select(0);
 		class_list->ensure_cursor_is_visible();
 	}
+
 	class_desc->show();
 	//tabs->set_current_tab(PAGE_CLASS_DESC);
 	edited_class->set_pressed(true);
@@ -470,7 +492,7 @@ void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vs
 	description_line=0;
 
 	if (p_class==edited_class->get_text())
-		return; //already there
+		return OK; //already there
 
 	scroll_locked=true;
 
@@ -488,7 +510,6 @@ void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vs
 
 	class_desc->clear();
 	method_line.clear();
-
 	edited_class->set_text(p_class);
 	//edited_class->show();
 
@@ -526,6 +547,7 @@ void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vs
 		class_desc->pop();
 		class_desc->add_newline();
 		class_desc->add_newline();
+		class_desc->add_newline();
 
 	}
 
@@ -540,6 +562,7 @@ void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vs
 		//class_desc->add_newline();
 		class_desc->add_newline();
 		_add_text(cd.brief_description);
+		class_desc->add_newline();
 		class_desc->add_newline();
 		class_desc->add_newline();
 	}
@@ -616,7 +639,6 @@ void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vs
 
 	if (cd.properties.size()) {
 
-
 		class_desc->push_color(EditorSettings::get_singleton()->get("text_editor/keyword_color"));
 		class_desc->push_font(doc_title_font);
 		class_desc->add_text("Members:");
@@ -657,7 +679,49 @@ void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vs
 
 	}
 
+	if (cd.theme_properties.size()) {
 
+
+		class_desc->push_color(EditorSettings::get_singleton()->get("text_editor/keyword_color"));
+		class_desc->push_font(doc_title_font);
+		class_desc->add_text("GUI Theme Items:");
+		class_desc->pop();
+		class_desc->pop();
+		class_desc->add_newline();
+
+		class_desc->push_indent(1);
+
+		//class_desc->add_newline();
+
+		for(int i=0;i<cd.theme_properties.size();i++) {
+
+			theme_property_line[cd.theme_properties[i].name]=class_desc->get_line_count()-2;	//gets overriden if description
+			class_desc->push_font(doc_code_font);
+			_add_type(cd.theme_properties[i].type);
+			class_desc->push_color(EditorSettings::get_singleton()->get("text_editor/text_color"));
+			class_desc->add_text(" "+cd.theme_properties[i].name);
+			class_desc->pop();
+			class_desc->pop();
+
+			if (cd.theme_properties[i].description!="") {
+				class_desc->push_font(doc_font);
+				class_desc->add_text("  ");
+				class_desc->push_color(EditorSettings::get_singleton()->get("text_editor/comment_color"));
+				class_desc->add_text(cd.theme_properties[i].description);
+				class_desc->pop();
+				class_desc->pop();
+
+			}
+
+			class_desc->add_newline();
+		}
+
+		class_desc->pop();
+
+		class_desc->add_newline();
+		class_desc->add_newline();
+
+	}
 	if (cd.signals.size()) {
 
 		class_desc->push_color(EditorSettings::get_singleton()->get("text_editor/keyword_color"));
@@ -717,6 +781,7 @@ void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vs
 
 		class_desc->pop();
 		class_desc->add_newline();
+		class_desc->add_newline();
 
 	}
 
@@ -761,6 +826,7 @@ void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vs
 
 		class_desc->pop();
 		class_desc->add_newline();
+		class_desc->add_newline();
 
 
 	}
@@ -768,6 +834,7 @@ void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vs
 	if (cd.description!="") {
 
 		description_line=class_desc->get_line_count()-2;
+
 		class_desc->push_color(EditorSettings::get_singleton()->get("text_editor/keyword_color"));
 		class_desc->push_font(doc_title_font);
 		class_desc->add_text("Description:");
@@ -775,8 +842,8 @@ void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vs
 		class_desc->pop();
 
 		class_desc->add_newline();
-		class_desc->add_newline();
 		_add_text(cd.description);
+		class_desc->add_newline();
 		class_desc->add_newline();
 		class_desc->add_newline();
 	}
@@ -791,12 +858,16 @@ void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vs
 
 		class_desc->add_newline();
 		class_desc->add_newline();
+		class_desc->push_indent(1);
 
 
 		for(int i=0;i<cd.methods.size();i++) {
 
 			method_line[cd.methods[i].name]=class_desc->get_line_count()-2;
 
+			if( cd.methods[i].description != "") {
+				class_desc->add_newline();
+			}
 			class_desc->push_font(doc_code_font);
 			_add_type(cd.methods[i].return_type);
 
@@ -837,9 +908,12 @@ void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vs
 
 			class_desc->pop();
 
-			class_desc->add_newline();
-			class_desc->add_newline();
-			_add_text(cd.methods[i].description);
+			if( cd.methods[i].description != "") {
+				class_desc->add_text("  ");
+				_add_text(cd.methods[i].description);
+				class_desc->add_newline();
+				class_desc->add_newline();
+			}
 			class_desc->add_newline();
 			class_desc->add_newline();
 
@@ -858,13 +932,16 @@ void EditorHelp::_goto_desc(const String& p_class,bool p_update_history,int p_vs
 
 	scroll_locked=false;
 
+	return OK;
 }
 
 void EditorHelp::_request_help(const String& p_string) {
-
-	_goto_desc(p_string);
-
-
+	Error err = _goto_desc(p_string);
+	if (err==OK) {
+		editor->call("_editor_select",3);
+	} else {
+		class_search->popup(p_string);
+	}
 	//100 palabras
 }
 
@@ -893,6 +970,10 @@ void EditorHelp::_help_callback(const String& p_topic) {
 
 		if (property_line.has(name))
 			line=property_line[name];
+	} else if (what=="class_theme_item") {
+
+		if (theme_property_line.has(name))
+			line=theme_property_line[name];
 	} else if (what=="class_constant") {
 
 		if (constant_line.has(name))
@@ -1172,13 +1253,13 @@ void EditorHelp::_update_doc() {
 
 	class_list->clear();
 
-	List<String> type_list;
+	List<StringName> type_list;
 
 	tree_item_map.clear();
 
 	TreeItem *root = class_list->create_item();
 	class_list->set_hide_root(true);
-	List<String>::Element *I=type_list.front();
+	List<StringName>::Element *I=type_list.front();
 
 	for(Map<String,DocData::ClassDoc>::Element *E=doc->class_list.front();E;E=E->next()) {
 
@@ -1219,8 +1300,10 @@ void EditorHelp::_notification(int p_what) {
 
 void EditorHelp::_tree_item_selected() {
 
-	if (select_locked)
+	if (select_locked) {
+		select_locked = false;
 		return;
+	}
 	TreeItem *s=class_list->get_selected();
 	if (!s)
 		return;
@@ -1268,7 +1351,6 @@ EditorHelp::EditorHelp(EditorNode *p_editor) {
 	edited_class->hide();
 	b->set_toggle_mode(true);
 	b->connect("pressed",this,"_button_pressed",make_binds(PAGE_CLASS_DESC));
-	edited_class->hide();
 
 	b = memnew( Button );
 	b->set_text("Search in Classes");
@@ -1291,8 +1373,8 @@ EditorHelp::EditorHelp(EditorNode *p_editor) {
 
 	Separator *hs = memnew( VSeparator );
 	panel_hb->add_child(hs);
-	EmptyControl *ec = memnew( EmptyControl );
-	ec->set_minsize(Size2(200,1));
+	Control *ec = memnew( Control );
+	ec->set_custom_minimum_size(Size2(200,1));
 	panel_hb->add_child(ec);
 	search = memnew( LineEdit );
 	ec->add_child(search);
@@ -1320,7 +1402,11 @@ EditorHelp::EditorHelp(EditorNode *p_editor) {
 
 	{
 		PanelContainer *pc = memnew( PanelContainer );
-		pc->add_style_override("panel",get_stylebox("normal","TextEdit"));
+		Ref<StyleBoxFlat> style( memnew( StyleBoxFlat ) );
+		style->set_bg_color( EditorSettings::get_singleton()->get("text_editor/background_color") );	
+		style->set_default_margin(MARGIN_LEFT,20);
+		style->set_default_margin(MARGIN_TOP,20);
+		pc->add_style_override("panel", style); //get_stylebox("normal","TextEdit"));
 		h_split->add_child(pc);
 		class_desc = memnew( RichTextLabel );
 		pc->add_child(class_desc);

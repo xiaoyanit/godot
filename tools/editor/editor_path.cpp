@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -73,14 +73,24 @@ void EditorPath::_notification(int p_what) {
 					if (obj->cast_to<Resource>()) {
 
 						Resource *r = obj->cast_to<Resource>();
-						name=r->get_name();
+						if (r->get_path().is_resource_file())
+							name=r->get_path().get_file();
+						else
+							name=r->get_name();
+
 						if (name=="")
 							name=r->get_type();
 					} else if (obj->cast_to<Node>()) {
 
 						name=obj->cast_to<Node>()->get_name();
-					} else
+					} else if (obj->cast_to<Resource>() && obj->cast_to<Resource>()->get_name()!="") {
+						name=obj->cast_to<Resource>()->get_name();
+					} else {
 						name=obj->get_type();
+					}
+
+					set_tooltip(obj->get_type());
+
 
 					label_font->draw(ci,Point2i(ofs,(size.height-label_font->get_height())/2+label_font->get_ascent()),name,Color(1,1,1),left);
 				} else {

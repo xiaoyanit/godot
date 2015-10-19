@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -63,7 +63,7 @@ Error QuickHull::build(const Vector<Vector3>& p_points, Geometry::MeshData &r_me
 		Vector3 sp = p_points[i].snapped(0.0001);
 		if (valid_cache.has(sp)) {
 			valid_points[i]=false;
-			print_line("INVALIDATED: "+itos(i));
+			//print_line("INVALIDATED: "+itos(i));
 		}else {
 			valid_points[i]=true;
 			valid_cache.insert(sp);
@@ -428,6 +428,7 @@ Error QuickHull::build(const Vector<Vector3>& p_points, Geometry::MeshData &r_me
 
 			List<Geometry::MeshData::Face>::Element *O = F->get().left == E ? F->get().right : F->get().left;
 			ERR_CONTINUE(O==E);
+			ERR_CONTINUE(O==NULL);
 
 			if (O->get().plane.is_almost_like(f.plane)) {
 				//merge and delete edge and contiguous face, while repointing edges (uuugh!)

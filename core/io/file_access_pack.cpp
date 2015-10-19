@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -48,7 +48,10 @@ Error PackedData::add_pack(const String& p_path) {
 
 void PackedData::add_path(const String& pkg_path, const String& path, uint64_t ofs, uint64_t size,const uint8_t* p_md5, PackSource* p_src) {
 
-	bool exists = files.has(path);
+	PathMD5 pmd5(path.md5_buffer());
+	//printf("adding path %ls, %lli, %lli\n", path.c_str(), pmd5.a, pmd5.b);
+
+	bool exists = files.has(pmd5);
 
 	PackedFile pf;
 	pf.pack=pkg_path;
@@ -58,7 +61,7 @@ void PackedData::add_path(const String& pkg_path, const String& path, uint64_t o
 		pf.md5[i]=p_md5[i];
 	pf.src = p_src;
 
-	files[path]=pf;
+	files[pmd5]=pf;
 
 	if (!exists) {
 		//search for dir
@@ -89,7 +92,9 @@ void PackedData::add_path(const String& pkg_path, const String& path, uint64_t o
 
 void PackedData::add_pack_source(PackSource *p_source) {
 
-	sources.push_back(p_source);
+	if (p_source != NULL) {
+		sources.push_back(p_source);
+	}
 };
 
 PackedData *PackedData::singleton=NULL;
@@ -104,6 +109,21 @@ PackedData::PackedData() {
 	add_pack_source(memnew(PackedSourcePCK));
 }
 
+void PackedData::_free_packed_dirs(PackedDir *p_dir) {
+
+	for (Map<String,PackedDir*>::Element *E=p_dir->subdirs.front();E;E=E->next())
+		_free_packed_dirs(E->get());
+	memdelete(p_dir);
+}
+
+PackedData::~PackedData() {
+
+	for(int i=0;i<sources.size();i++) {
+		memdelete(sources[i]);
+	}
+	_free_packed_dirs(root);
+}
+
 
 //////////////////////////////////////////////////////////////////
 
@@ -112,6 +132,8 @@ bool PackedSourcePCK::try_open_pack(const String& p_path) {
 	FileAccess *f = FileAccess::open(p_path,FileAccess::READ);
 	if (!f)
 		return false;
+
+	//printf("try open %ls!\n", p_path.c_str());
 
 	uint32_t magic= f->get_32();
 
@@ -357,6 +379,10 @@ bool DirAccessPack::current_is_dir() const{
 
 	return cdir;
 }
+bool DirAccessPack::current_is_hidden() const{
+
+	return false;
+}
 void DirAccessPack::list_dir_end() {
 
 	list_dirs.clear();
@@ -441,6 +467,11 @@ String DirAccessPack::get_current_dir() {
 bool DirAccessPack::file_exists(String p_file){
 
 	return current->files.has(p_file);
+}
+
+bool DirAccessPack::dir_exists(String p_dir) {
+
+	return current->subdirs.has(p_dir);
 }
 
 Error DirAccessPack::make_dir(String p_dir){

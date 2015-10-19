@@ -1,3 +1,4 @@
+//
 // Copyright 2010 Google Inc. All Rights Reserved.
 //
 // This code is licensed under the same terms as WebM:
@@ -18,7 +19,7 @@
 #include <stdlib.h>  // _byteswap_ulong
 #endif
 #include <string.h>  // For memcpy
-#include "../webp/types.h"
+#include "../types.h"
 
 #if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {

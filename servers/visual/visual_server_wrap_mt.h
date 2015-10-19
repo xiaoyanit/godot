@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -66,543 +66,23 @@ class VisualServerWrapMT : public VisualServer {
 	int texture_pool_max_size;
 	List<RID> texture_id_pool;
 
+	int mesh_pool_max_size;
+	List<RID> mesh_id_pool;
+
+//#define DEBUG_SYNC
+
+#ifdef DEBUG_SYNC
+#define SYNC_DEBUG print_line("sync on: "+String(__FUNCTION__));
+#else
+#define SYNC_DEBUG
+#endif
 
 public:
 
-#define FUNC0R(m_r,m_type)\
-	virtual m_r m_type() { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type();\
-		}\
-	}
-
-#define FUNCRID(m_type)\
-	int m_type##allocn() {\
-		for(int i=0;i<m_type##_pool_max_size;i++) {\
-			m_type##_id_pool.push_back( visual_server->m_type##_create() );\
-		}\
-		return 0;\
-	}\
-	void m_type##_free_cached_ids() {\
-		while (m_type##_id_pool.size()) {\
-			free(m_type##_id_pool.front()->get());\
-			m_type##_id_pool.pop_front();\
-		}\
-	}\
-	virtual RID m_type##_create() { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			RID rid;\
-			alloc_mutex->lock();\
-			if (m_type##_id_pool.size()==0) {\
-				int ret;\
-				command_queue.push_and_ret( this, &VisualServerWrapMT::m_type##allocn,&ret);\
-			}\
-			rid=m_type##_id_pool.front()->get();\
-			m_type##_id_pool.pop_front();\
-			alloc_mutex->unlock();\
-			return rid;\
-		} else {\
-			return visual_server->m_type##_create();\
-		}\
-	}
-
-#define FUNC0RC(m_r,m_type)\
-	virtual m_r m_type() const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type();\
-		}\
-	}
-
-
-#define FUNC0(m_type)\
-	virtual void m_type() { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type);\
-		} else {\
-			visual_server->m_type();\
-		}\
-	}
-
-#define FUNC0C(m_type)\
-	virtual void m_type() const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type);\
-		} else {\
-			visual_server->m_type();\
-		}\
-	}
-
-
-#define FUNC0S(m_type)\
-	virtual void m_type() { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type);\
-		} else {\
-			visual_server->m_type();\
-		}\
-	}
-
-#define FUNC0SC(m_type)\
-	virtual void m_type() const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type);\
-		} else {\
-			visual_server->m_type();\
-		}\
-	}
-
-
-///////////////////////////////////////////////
-
-
-#define FUNC1R(m_r,m_type,m_arg1)\
-	virtual m_r m_type(m_arg1 p1) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1);\
-		}\
-	}
-
-#define FUNC1RC(m_r,m_type,m_arg1)\
-	virtual m_r m_type(m_arg1 p1) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1);\
-		}\
-	}
-
-
-#define FUNC1S(m_type,m_arg1)\
-	virtual void m_type(m_arg1 p1) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1);\
-		} else {\
-			visual_server->m_type(p1);\
-		}\
-	}
-
-#define FUNC1SC(m_type,m_arg1)\
-	virtual void m_type(m_arg1 p1) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1);\
-		} else {\
-			visual_server->m_type(p1);\
-		}\
-	}
-
-
-#define FUNC1(m_type,m_arg1)\
-	virtual void m_type(m_arg1 p1) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1);\
-		} else {\
-			visual_server->m_type(p1);\
-		}\
-	}
-
-#define FUNC1C(m_type,m_arg1)\
-	virtual void m_type(m_arg1 p1) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1);\
-		} else {\
-			visual_server->m_type(p1);\
-		}\
-	}
-
-
-
-
-#define FUNC2R(m_r,m_type,m_arg1, m_arg2)\
-	virtual m_r m_type(m_arg1 p1, m_arg2 p2) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1, p2,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1, p2);\
-		}\
-	}
-
-#define FUNC2RC(m_r,m_type,m_arg1, m_arg2)\
-	virtual m_r m_type(m_arg1 p1, m_arg2 p2) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1, p2,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1, p2);\
-		}\
-	}
-
-
-#define FUNC2S(m_type,m_arg1, m_arg2)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1, p2);\
-		} else {\
-			visual_server->m_type(p1, p2);\
-		}\
-	}
-
-#define FUNC2SC(m_type,m_arg1, m_arg2)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1, p2);\
-		} else {\
-			visual_server->m_type(p1, p2);\
-		}\
-	}
-
-
-#define FUNC2(m_type,m_arg1, m_arg2)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1, p2);\
-		} else {\
-			visual_server->m_type(p1, p2);\
-		}\
-	}
-
-#define FUNC2C(m_type,m_arg1, m_arg2)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1, p2);\
-		} else {\
-			visual_server->m_type(p1, p2);\
-		}\
-	}
-
-
-
-
-#define FUNC3R(m_r,m_type,m_arg1, m_arg2, m_arg3)\
-	virtual m_r m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1, p2, p3,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1, p2, p3);\
-		}\
-	}
-
-#define FUNC3RC(m_r,m_type,m_arg1, m_arg2, m_arg3)\
-	virtual m_r m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1, p2, p3,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1, p2, p3);\
-		}\
-	}
-
-
-#define FUNC3S(m_type,m_arg1, m_arg2, m_arg3)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1, p2, p3);\
-		} else {\
-			visual_server->m_type(p1, p2, p3);\
-		}\
-	}
-
-#define FUNC3SC(m_type,m_arg1, m_arg2, m_arg3)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1, p2, p3);\
-		} else {\
-			visual_server->m_type(p1, p2, p3);\
-		}\
-	}
-
-
-#define FUNC3(m_type,m_arg1, m_arg2, m_arg3)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1, p2, p3);\
-		} else {\
-			visual_server->m_type(p1, p2, p3);\
-		}\
-	}
-
-#define FUNC3C(m_type,m_arg1, m_arg2, m_arg3)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1, p2, p3);\
-		} else {\
-			visual_server->m_type(p1, p2, p3);\
-		}\
-	}
-
-
-
-
-#define FUNC4R(m_r,m_type,m_arg1, m_arg2, m_arg3, m_arg4)\
-	virtual m_r m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1, p2, p3, p4,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1, p2, p3, p4);\
-		}\
-	}
-
-#define FUNC4RC(m_r,m_type,m_arg1, m_arg2, m_arg3, m_arg4)\
-	virtual m_r m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1, p2, p3, p4,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1, p2, p3, p4);\
-		}\
-	}
-
-
-#define FUNC4S(m_type,m_arg1, m_arg2, m_arg3, m_arg4)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1, p2, p3, p4);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4);\
-		}\
-	}
-
-#define FUNC4SC(m_type,m_arg1, m_arg2, m_arg3, m_arg4)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1, p2, p3, p4);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4);\
-		}\
-	}
-
-
-#define FUNC4(m_type,m_arg1, m_arg2, m_arg3, m_arg4)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1, p2, p3, p4);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4);\
-		}\
-	}
-
-#define FUNC4C(m_type,m_arg1, m_arg2, m_arg3, m_arg4)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1, p2, p3, p4);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4);\
-		}\
-	}
-
-
-
-
-#define FUNC5R(m_r,m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5)\
-	virtual m_r m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1, p2, p3, p4, p5);\
-		}\
-	}
-
-#define FUNC5RC(m_r,m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5)\
-	virtual m_r m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1, p2, p3, p4, p5);\
-		}\
-	}
-
-
-#define FUNC5S(m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4, p5);\
-		}\
-	}
-
-#define FUNC5SC(m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4, p5);\
-		}\
-	}
-
-
-#define FUNC5(m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4, p5);\
-		}\
-	}
-
-#define FUNC5C(m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4, p5);\
-		}\
-	}
-
-
-
-
-#define FUNC6R(m_r,m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5, m_arg6)\
-	virtual m_r m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5, m_arg6 p6) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5, p6,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1, p2, p3, p4, p5, p6);\
-		}\
-	}
-
-#define FUNC6RC(m_r,m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5, m_arg6)\
-	virtual m_r m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5, m_arg6 p6) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5, p6,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1, p2, p3, p4, p5, p6);\
-		}\
-	}
-
-
-#define FUNC6S(m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5, m_arg6)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5, m_arg6 p6) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5, p6);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4, p5, p6);\
-		}\
-	}
-
-#define FUNC6SC(m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5, m_arg6)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5, m_arg6 p6) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5, p6);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4, p5, p6);\
-		}\
-	}
-
-
-#define FUNC6(m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5, m_arg6)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5, m_arg6 p6) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5, p6);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4, p5, p6);\
-		}\
-	}
-
-#define FUNC6C(m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5, m_arg6)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5, m_arg6 p6) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5, p6);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4, p5, p6);\
-		}\
-	}
-
-
-
-
-#define FUNC7R(m_r,m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5, m_arg6, m_arg7)\
-	virtual m_r m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5, m_arg6 p6, m_arg7 p7) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5, p6, p7,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1, p2, p3, p4, p5, p6, p7);\
-		}\
-	}
-
-#define FUNC7RC(m_r,m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5, m_arg6, m_arg7)\
-	virtual m_r m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5, m_arg6 p6, m_arg7 p7) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			m_r ret;\
-			command_queue.push_and_ret( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5, p6, p7,&ret);\
-			return ret;\
-		} else {\
-			return visual_server->m_type(p1, p2, p3, p4, p5, p6, p7);\
-		}\
-	}
-
-
-#define FUNC7S(m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5, m_arg6, m_arg7)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5, m_arg6 p6, m_arg7 p7) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5, p6, p7);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4, p5, p6, p7);\
-		}\
-	}
-
-#define FUNC7SC(m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5, m_arg6, m_arg7)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5, m_arg6 p6, m_arg7 p7) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push_and_sync( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5, p6, p7);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4, p5, p6, p7);\
-		}\
-	}
-
-
-#define FUNC7(m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5, m_arg6, m_arg7)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5, m_arg6 p6, m_arg7 p7) { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5, p6, p7);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4, p5, p6, p7);\
-		}\
-	}
-
-#define FUNC7C(m_type,m_arg1, m_arg2, m_arg3, m_arg4, m_arg5, m_arg6, m_arg7)\
-	virtual void m_type(m_arg1 p1, m_arg2 p2, m_arg3 p3, m_arg4 p4, m_arg5 p5, m_arg6 p6, m_arg7 p7) const { \
-		if (Thread::get_caller_ID()!=server_thread) {\
-			command_queue.push( visual_server, &VisualServer::m_type,p1, p2, p3, p4, p5, p6, p7);\
-		} else {\
-			visual_server->m_type(p1, p2, p3, p4, p5, p6, p7);\
-		}\
-	}
-
-
-
+#define ServerName VisualServer
+#define ServerNameWrapMT VisualServerWrapMT
+#define server_name visual_server
+#include "servers/server_wrap_mt_common.h"
 
 	//FUNC0R(RID,texture_create);
 	FUNCRID(texture);
@@ -623,10 +103,15 @@ public:
 	FUNC1R(RID,shader_create,ShaderMode);
 	FUNC2(shader_set_mode,RID,ShaderMode);
 	FUNC1RC(ShaderMode,shader_get_mode,RID);
-	FUNC5(shader_set_code,RID,const String&,const String&,int,int);
+	FUNC7(shader_set_code,RID,const String&,const String&,const String&,int,int,int);
 	FUNC1RC(String,shader_get_vertex_code,RID);
 	FUNC1RC(String,shader_get_fragment_code,RID);
+	FUNC1RC(String,shader_get_light_code,RID);
 	FUNC2SC(shader_get_param_list,RID,List<PropertyInfo>*);
+
+	FUNC3(shader_set_default_texture_param,RID,const StringName&,RID);
+	FUNC2RC(RID,shader_get_default_texture_param,RID,const StringName&);
+
 
 	/*virtual void shader_get_param_list(RID p_shader, List<PropertyInfo> *p_param_list) {
 		if (Thread::get_caller_ID()!=server_thread) {
@@ -651,11 +136,8 @@ public:
 	FUNC3(material_set_flag,RID,MaterialFlag,bool);
 	FUNC2RC(bool,material_get_flag,RID,MaterialFlag);
 
-	FUNC3(material_set_hint,RID,MaterialHint,bool);
-	FUNC2RC(bool,material_get_hint,RID,MaterialHint);
-
-	FUNC2(material_set_shade_model,RID,MaterialShadeModel);
-	FUNC1RC(MaterialShadeModel,material_get_shade_model,RID);
+	FUNC2(material_set_depth_draw_mode,RID,MaterialDepthDrawMode);
+	FUNC1RC(MaterialDepthDrawMode,material_get_depth_draw_mode,RID);
 
 	FUNC2(material_set_blend_mode,RID,MaterialBlendMode);
 	FUNC1RC(MaterialBlendMode,material_get_blend_mode,RID);
@@ -677,12 +159,13 @@ public:
 	FUNC3(fixed_material_set_texture,RID ,FixedMaterialParam, RID );
 	FUNC2RC(RID, fixed_material_get_texture,RID,FixedMaterialParam);
 
-	FUNC2(fixed_material_set_detail_blend_mode,RID ,MaterialBlendMode );
-	FUNC1RC(MaterialBlendMode, fixed_material_get_detail_blend_mode,RID);
 
 
 	FUNC3(fixed_material_set_texcoord_mode,RID,FixedMaterialParam, FixedMaterialTexCoordMode );
 	FUNC2RC(FixedMaterialTexCoordMode, fixed_material_get_texcoord_mode,RID,FixedMaterialParam);
+
+	FUNC2(fixed_material_set_light_shader,RID,FixedMaterialLightShader);
+	FUNC1RC(FixedMaterialLightShader, fixed_material_get_light_shader,RID);
 
 	FUNC2(fixed_material_set_uv_transform,RID,const Transform&);
 	FUNC1RC(Transform, fixed_material_get_uv_transform,RID);
@@ -691,10 +174,11 @@ public:
 	FUNC1RC(float,fixed_material_get_point_size,RID);
 
 	/* SURFACE API */
-	FUNC0R(RID,mesh_create);
+	FUNCRID(mesh);
 
 	FUNC2(mesh_set_morph_target_count,RID,int);
 	FUNC1RC(int,mesh_get_morph_target_count,RID);
+
 
 	FUNC2(mesh_set_morph_target_mode,RID,MorphTargetMode);
 	FUNC1RC(MorphTargetMode,mesh_get_morph_target_mode,RID);
@@ -715,7 +199,11 @@ public:
 
 	FUNC2(mesh_remove_surface,RID,int);
 	FUNC1RC(int,mesh_get_surface_count,RID);
+	FUNC1(mesh_clear,RID);
 
+
+	FUNC2(mesh_set_custom_aabb,RID,const AABB&);
+	FUNC1RC(AABB,mesh_get_custom_aabb,RID);
 
 
 	/* MULTIMESH API */
@@ -736,6 +224,22 @@ public:
 
 	FUNC2(multimesh_set_visible_instances,RID,int);
 	FUNC1RC(int,multimesh_get_visible_instances,RID);
+
+	/* IMMEDIATE API */
+
+
+	FUNC0R(RID,immediate_create);
+	FUNC3(immediate_begin,RID,PrimitiveType,RID);
+	FUNC2(immediate_vertex,RID,const Vector3&);
+	FUNC2(immediate_normal,RID,const Vector3&);
+	FUNC2(immediate_tangent,RID,const Plane&);
+	FUNC2(immediate_color,RID,const Color&);
+	FUNC2(immediate_uv,RID,const Vector2&);
+	FUNC2(immediate_uv2,RID,const Vector2&);
+	FUNC1(immediate_end,RID);
+	FUNC1(immediate_clear,RID);
+	FUNC2(immediate_set_material,RID,RID);
+	FUNC1RC(RID,immediate_get_material,RID);
 
 
 	/* PARTICLES API */
@@ -859,6 +363,33 @@ public:
 	FUNC1RC(float,portal_get_connect_range,RID);
 
 
+	FUNC0R(RID,baked_light_create);
+	FUNC2(baked_light_set_mode,RID,BakedLightMode);
+	FUNC1RC(BakedLightMode,baked_light_get_mode,RID);
+
+	FUNC2(baked_light_set_octree,RID,DVector<uint8_t>);
+	FUNC1RC(DVector<uint8_t>,baked_light_get_octree,RID);
+
+	FUNC2(baked_light_set_light,RID,DVector<uint8_t>);
+	FUNC1RC(DVector<uint8_t>,baked_light_get_light,RID);
+
+	FUNC2(baked_light_set_sampler_octree,RID,const DVector<int>&);
+	FUNC1RC(DVector<int>,baked_light_get_sampler_octree,RID);
+
+	FUNC2(baked_light_set_lightmap_multiplier,RID,float);
+	FUNC1RC(float,baked_light_get_lightmap_multiplier,RID);
+
+	FUNC3(baked_light_add_lightmap,RID,RID,int);
+	FUNC1(baked_light_clear_lightmaps,RID);
+
+
+	FUNC0R(RID,baked_light_sampler_create);
+
+	FUNC3(baked_light_sampler_set_param,RID, BakedLightSamplerParam , float );
+	FUNC2RC(float,baked_light_sampler_get_param,RID, BakedLightSamplerParam );
+
+	FUNC2(baked_light_sampler_set_resolution,RID,int);
+	FUNC1RC(int,baked_light_sampler_get_resolution,RID);
 
 	/* CAMERA API */
 
@@ -872,6 +403,7 @@ public:
 
 	FUNC2(camera_set_environment,RID,RID);
 	FUNC1RC(RID,camera_get_environment,RID);
+
 
 	FUNC2(camera_set_use_vertical_aspect,RID,bool);
 	FUNC2RC(bool,camera_is_using_vertical_aspect,RID,bool);
@@ -892,6 +424,10 @@ public:
 	FUNC2(viewport_set_render_target_vflip,RID,bool);
 	FUNC1RC(bool,viewport_get_render_target_vflip,RID);
 	FUNC2(viewport_set_render_target_to_screen_rect,RID,const Rect2&);
+	
+	FUNC2(viewport_set_render_target_clear_on_new_frame,RID,bool);
+	FUNC1RC(bool,viewport_get_render_target_clear_on_new_frame,RID);
+	FUNC1(viewport_render_target_clear,RID);
 
 	FUNC1(viewport_queue_screen_capture,RID);
 	FUNC1RC(Image,viewport_get_screen_capture,RID);
@@ -903,6 +439,7 @@ public:
 	FUNC2(viewport_set_hide_canvas,RID,bool );
 	FUNC2(viewport_attach_camera,RID,RID );
 	FUNC2(viewport_set_scenario,RID,RID );
+	FUNC2(viewport_set_disable_environment,RID,bool );
 
 	FUNC1RC(RID,viewport_get_attached_camera,RID);
 	FUNC1RC(RID,viewport_get_scenario,RID );
@@ -942,6 +479,7 @@ public:
 	FUNC2(scenario_set_debug,RID,ScenarioDebugMode);
 	FUNC2(scenario_set_environment,RID, RID);
 	FUNC2RC(RID,scenario_get_environment,RID, RID);
+	FUNC2(scenario_set_fallback_environment,RID, RID);
 
 
 	/* INSTANCING API */
@@ -994,12 +532,25 @@ public:
 	FUNC1RC(float,instance_geometry_get_draw_range_max,RID);
 	FUNC1RC(float,instance_geometry_get_draw_range_min,RID);
 
+	FUNC2(instance_geometry_set_baked_light,RID, RID );
+	FUNC1RC(RID,instance_geometry_get_baked_light,RID);
+
+	FUNC2(instance_geometry_set_baked_light_sampler,RID, RID );
+	FUNC1RC(RID,instance_geometry_get_baked_light_sampler,RID);
+
+	FUNC2(instance_geometry_set_baked_light_texture_index,RID, int);
+	FUNC1RC(int,instance_geometry_get_baked_light_texture_index,RID);
+
+	FUNC2(instance_light_set_enabled,RID,bool);
+	FUNC1RC(bool,instance_light_is_enabled,RID);
 
 	/* CANVAS (2D) */
 
 	FUNC0R(RID,canvas_create);
 	FUNC3(canvas_set_item_mirroring,RID,RID,const Point2&);
 	FUNC2RC(Point2,canvas_get_item_mirroring,RID,RID);
+	FUNC2(canvas_set_modulate,RID,const Color&);
+
 
 	FUNC0R(RID,canvas_item_create);
 
@@ -1010,11 +561,12 @@ public:
 	FUNC1RC(bool,canvas_item_is_visible,RID);
 
 	FUNC2(canvas_item_set_blend_mode,RID,MaterialBlendMode );
-
+	FUNC2(canvas_item_set_light_mask,RID,int );
 
 	//FUNC(canvas_item_set_rect,RID, const Rect2& p_rect);
 	FUNC2(canvas_item_set_transform,RID, const Matrix32& );
 	FUNC2(canvas_item_set_clip,RID, bool );
+	FUNC2(canvas_item_set_distance_field_mode,RID, bool );
 	FUNC3(canvas_item_set_custom_rect,RID, bool ,const Rect2&);
 	FUNC2(canvas_item_set_opacity,RID, float );
 	FUNC2RC(float,canvas_item_get_opacity,RID, float );
@@ -1029,9 +581,8 @@ public:
 	FUNC5(canvas_item_add_line,RID, const Point2& , const Point2& ,const Color& ,float );
 	FUNC3(canvas_item_add_rect,RID, const Rect2& , const Color& );
 	FUNC4(canvas_item_add_circle,RID, const Point2& , float ,const Color& );
-	FUNC5(canvas_item_add_texture_rect,RID, const Rect2& , RID ,bool ,const Color& );
-	FUNC5(canvas_item_add_texture_rect_region,RID, const Rect2& , RID ,const Rect2& ,const Color& );
-
+	FUNC6(canvas_item_add_texture_rect,RID, const Rect2& , RID ,bool ,const Color&,bool );
+	FUNC6(canvas_item_add_texture_rect_region,RID, const Rect2& , RID ,const Rect2& ,const Color&,bool );
 	FUNC7(canvas_item_add_style_box,RID, const Rect2& , RID ,const Vector2& ,const Vector2&, bool ,const Color& );
 	FUNC6(canvas_item_add_primitive,RID, const Vector<Point2>& , const Vector<Color>& ,const Vector<Point2>& , RID ,float );
 	FUNC5(canvas_item_add_polygon,RID, const Vector<Point2>& , const Vector<Color>& ,const Vector<Point2>& , RID );
@@ -1043,9 +594,65 @@ public:
 	FUNC2(canvas_item_add_set_blend_mode,RID, MaterialBlendMode );
 	FUNC2(canvas_item_add_clip_ignore,RID, bool );
 
+	FUNC2(canvas_item_set_sort_children_by_y,RID,bool);
+	FUNC2(canvas_item_set_z,RID,int);
+	FUNC2(canvas_item_set_z_as_relative_to_parent,RID,bool);
+	FUNC3(canvas_item_set_copy_to_backbuffer,RID,bool,const Rect2&);
+
+
+	FUNC2(canvas_item_set_material,RID, RID );
+
+	FUNC2(canvas_item_set_use_parent_material,RID, bool );
+
 	FUNC1(canvas_item_clear,RID);
 	FUNC1(canvas_item_raise,RID);
 
+	/* CANVAS LIGHT */
+	FUNC0R(RID,canvas_light_create);
+	FUNC2(canvas_light_attach_to_canvas,RID,RID);
+	FUNC2(canvas_light_set_enabled,RID,bool);
+	FUNC2(canvas_light_set_transform,RID,const Matrix32&);
+	FUNC2(canvas_light_set_scale,RID,float);
+	FUNC2(canvas_light_set_texture,RID,RID);
+	FUNC2(canvas_light_set_texture_offset,RID,const Vector2&);
+	FUNC2(canvas_light_set_color,RID,const Color&);
+	FUNC2(canvas_light_set_height,RID,float);
+	FUNC2(canvas_light_set_energy,RID,float);
+	FUNC3(canvas_light_set_layer_range,RID,int,int);
+	FUNC3(canvas_light_set_z_range,RID,int,int);
+	FUNC2(canvas_light_set_item_mask,RID,int);
+	FUNC2(canvas_light_set_item_shadow_mask,RID,int);
+
+	FUNC2(canvas_light_set_mode,RID,CanvasLightMode);
+	FUNC2(canvas_light_set_shadow_enabled,RID,bool);
+	FUNC2(canvas_light_set_shadow_buffer_size,RID,int);
+	FUNC2(canvas_light_set_shadow_esm_multiplier,RID,float);
+	FUNC2(canvas_light_set_shadow_color,RID,const Color&);
+
+
+
+	/* CANVAS OCCLUDER */
+
+	FUNC0R(RID,canvas_light_occluder_create);
+	FUNC2(canvas_light_occluder_attach_to_canvas,RID,RID);
+	FUNC2(canvas_light_occluder_set_enabled,RID,bool);
+	FUNC2(canvas_light_occluder_set_polygon,RID,RID);
+	FUNC2(canvas_light_occluder_set_transform,RID,const Matrix32&);
+	FUNC2(canvas_light_occluder_set_light_mask,RID,int);
+
+
+	FUNC0R(RID,canvas_occluder_polygon_create);
+	FUNC3(canvas_occluder_polygon_set_shape,RID,const DVector<Vector2>&,bool);
+	FUNC2(canvas_occluder_polygon_set_shape_as_lines,RID,const DVector<Vector2>&);
+	FUNC2(canvas_occluder_polygon_set_cull_mode,RID,CanvasOccluderPolygonCullMode);
+
+	/* CANVAS MATERIAL */
+
+	FUNC0R(RID,canvas_item_material_create);
+	FUNC2(canvas_item_material_set_shader,RID,RID);
+	FUNC3(canvas_item_material_set_shader_param,RID,const StringName&,const Variant&);
+	FUNC2RC(Variant,canvas_item_material_get_shader_param,RID,const StringName&);	
+	FUNC2(canvas_item_material_set_shading_mode,RID,CanvasItemShadingMode);
 
 	/* CURSOR */
 	FUNC2(cursor_set_rotation,float , int ); // radians
@@ -1056,6 +663,7 @@ public:
 	/* BLACK BARS */
 
 	FUNC4(black_bars_set_margins,int , int , int , int );
+	FUNC4(black_bars_set_images,RID , RID , RID , RID );
 
 	/* FREE */
 
@@ -1076,15 +684,15 @@ public:
 	virtual void init();
 	virtual void finish();
 	virtual void draw();
-	virtual void flush();
+	virtual void sync();
 	FUNC0RC(bool,has_changed);
 
 	/* RENDER INFO */
 
 	FUNC1R(int,get_render_info,RenderInfo );
-	FUNC1RC(bool,has_feature,Features );
+	virtual bool has_feature(Features p_feature) const { return visual_server->has_feature(p_feature); }
 
-	FUNC2(set_boot_image,const Image& , const Color& );
+	FUNC3(set_boot_image,const Image& , const Color&,bool );
 	FUNC1(set_default_clear_color,const Color& );
 
 	FUNC0R(RID,get_test_cube );
@@ -1093,7 +701,15 @@ public:
 	VisualServerWrapMT(VisualServer* p_contained,bool p_create_thread);
 	~VisualServerWrapMT();
 
+#undef ServerName
+#undef ServerNameWrapMT
+#undef server_name
+
 };
 
+#ifdef DEBUG_SYNC
+#undef DEBUG_SYNC
+#endif
+#undef SYNC_DEBUG
 
 #endif

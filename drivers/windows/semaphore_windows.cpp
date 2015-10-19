@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,13 +28,13 @@
 /*************************************************************************/
 #include "semaphore_windows.h"
 
-#ifdef WINDOWS_ENABLED
+#if defined(WINDOWS_ENABLED) && !defined(WINRT_ENABLED)
 
 #include "os/memory.h"
 
 Error SemaphoreWindows::wait() {
 
-	WaitForSingleObject(semaphore,INFINITE);
+	WaitForSingleObjectEx(semaphore,INFINITE, false);
 	return OK;
 }
 Error SemaphoreWindows::post() {
@@ -44,7 +44,7 @@ Error SemaphoreWindows::post() {
 }
 int SemaphoreWindows::get() const {
 	long previous;
-	switch (WaitForSingleObject(semaphore, 0)) {
+	switch (WaitForSingleObjectEx(semaphore, 0, false)) {
 		case WAIT_OBJECT_0: {
 			ERR_FAIL_COND_V(!ReleaseSemaphore(semaphore, 1, &previous),-1);
 			return previous + 1;
@@ -71,12 +71,21 @@ void SemaphoreWindows::make_default() {
 
 SemaphoreWindows::SemaphoreWindows() {
 
+#ifdef WINRT_ENABLED
+	semaphore=CreateSemaphoreEx(
+		NULL,
+		0,
+		0xFFFFFFF, //wathever
+		NULL,
+		0,
+		SEMAPHORE_ALL_ACCESS);
+#else
 	semaphore=CreateSemaphore(
-  		NULL,
-  		0,
-  		0xFFFFFFF, //wathever
-  		NULL);
-
+		NULL,
+		0,
+		0xFFFFFFF, //wathever
+		NULL);
+#endif
 }
 
 

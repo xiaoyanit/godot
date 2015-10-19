@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -41,7 +41,11 @@
 #include <netdb.h>
 #include <sys/types.h>
 #ifndef NO_FCNTL
-#include <sys/fcntl.h>
+	#ifdef __HAIKU__
+		#include <fcntl.h>
+	#else
+		#include <sys/fcntl.h>
+	#endif
 #else
 #include <sys/ioctl.h>
 #endif
@@ -93,6 +97,9 @@ Error TCPServerPosix::listen(uint16_t p_port,const List<String> *p_accepted_host
 			close(sockfd);
 			ERR_FAIL_V(FAILED);
 		};
+	}
+	else {
+		return ERR_ALREADY_IN_USE;
 	};
 
 	if (listen_sockfd != -1) {

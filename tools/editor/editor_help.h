@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -107,6 +107,7 @@ class EditorHelp : public VBoxContainer {
 	Map<String,int> method_line;
 	Map<String,int> signal_line;
 	Map<String,int> property_line;
+	Map<String,int> theme_property_line;
 	Map<String,int> constant_line;
 	int description_line;
 
@@ -139,7 +140,7 @@ class EditorHelp : public VBoxContainer {
 	void _class_list_select(const String& p_select);
 	void _class_desc_select(const String& p_select);
 
-	void _goto_desc(const String& p_class,bool p_update_history=true,int p_vscr=-1);
+	Error _goto_desc(const String& p_class,bool p_update_history=true,int p_vscr=-1);
 	void _update_history_buttons();
 	void _update_doc();
 

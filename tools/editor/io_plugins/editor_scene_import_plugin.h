@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -58,14 +58,15 @@ public:
 		IMPORT_ANIMATION=2,
 		IMPORT_ANIMATION_DETECT_LOOP=4,
 		IMPORT_ANIMATION_OPTIMIZE=8,
-		IMPORT_GENERATE_TANGENT_ARRAYS=16,
-		IMPORT_FAIL_ON_MISSING_DEPENDENCIES=128
+		IMPORT_ANIMATION_FORCE_ALL_TRACKS_IN_ALL_CLIPS=16,
+		IMPORT_GENERATE_TANGENT_ARRAYS=256,
+		IMPORT_FAIL_ON_MISSING_DEPENDENCIES=512
 
 	};
 
 	virtual uint32_t get_import_flags() const=0;
 	virtual void get_extensions(List<String> *r_extensions) const=0;
-	virtual Node* import_scene(const String& p_path,uint32_t p_flags,Error* r_err=NULL)=0;
+	virtual Node* import_scene(const String& p_path,uint32_t p_flags,int p_bake_fps,List<String> *r_missing_deps,Error* r_err=NULL)=0;
 	virtual Ref<Animation> import_animation(const String& p_path,uint32_t p_flags)=0;
 
 
@@ -99,29 +100,61 @@ class EditorSceneImportPlugin : public EditorImportPlugin {
 
 	Vector<Ref<EditorSceneImporter> > importers;
 
-	void _find_resources(const Variant& p_var,Set<Ref<ImageTexture> >& image_map);
-	Node* _fix_node(Node *p_node,Node *p_root,Map<Ref<Mesh>,Ref<Shape> > &collision_map,uint32_t p_flags,Set<Ref<ImageTexture> >& image_map);
-	void _merge_node(Node *p_node,Node*p_root,Node *p_existing,Set<Ref<Resource> >& checked_resources);
-	void _merge_scenes(Node *p_existing,Node *p_new);
+	enum TextureRole {
+		TEXTURE_ROLE_DEFAULT,
+		TEXTURE_ROLE_DIFFUSE,
+		TEXTURE_ROLE_NORMALMAP
+	};
 
+	void _find_resources(const Variant& p_var,Map<Ref<ImageTexture>,TextureRole >& image_map,int p_flags);
+	Node* _fix_node(Node *p_node,Node *p_root,Map<Ref<Mesh>,Ref<Shape> > &collision_map,uint32_t p_flags,Map<Ref<ImageTexture>,TextureRole >& image_map);
+	void _create_clips(Node *scene, const Array& p_clips, bool p_bake_all);
+	void _filter_anim_tracks(Ref<Animation> anim,Set<String> &keep);
+	void _filter_tracks(Node *scene, const String& p_text);
+	void _merge_existing_node(Node *p_node,Node *p_imported_scene,Set<Ref<Resource> >& checked_resources,Set<Node*> &checked_nodes);
+
+	void _add_new_nodes(Node *p_node,Node *p_imported,Node *p_imported_scene,Node *p_existing_scene,Set<Node*> &checked_nodes);
+	void _optimize_animations(Node *scene, float p_max_lin_error,float p_max_ang_error,float p_max_angle);
+
+	void _merge_scenes(Node *p_node, Node *p_imported);
+	void _scan_materials(Node*p_base,Node *p_node,Map<String,Ref<Material> > &mesh_materials,Map<String,Ref<Material> >& override_materials);
+	void _apply_materials(Node*p_base,Node *p_node,Map<String,Ref<Material> > &mesh_materials,Map<String,Ref<Material> >& override_materials,Set<Ref<Mesh> >& meshes_processed);
+	void _merge_materials(Node *p_node,Node *p_imported);
+
+	void _tag_import_paths(Node *p_scene,Node *p_node);
 
 public:
 
 	enum SceneFlags {
 
-		SCENE_FLAG_CREATE_COLLISIONS=1,
-		SCENE_FLAG_CREATE_PORTALS=2,
-		SCENE_FLAG_CREATE_ROOMS=4,
-		SCENE_FLAG_SIMPLIFY_ROOMS=8,
-		SCENE_FLAG_CREATE_BILLBOARDS=16,
-		SCENE_FLAG_CREATE_IMPOSTORS=32,
-		SCENE_FLAG_CREATE_LODS=64,
-		SCENE_FLAG_REMOVE_NOIMP=128,
-		SCENE_FLAG_IMPORT_ANIMATIONS=256,
-		SCENE_FLAG_COMPRESS_GEOMETRY=512,
-		SCENE_FLAG_FAIL_ON_MISSING_IMAGES=1024,
-		SCENE_FLAG_GENERATE_TANGENT_ARRAYS=2048,
-		SCENE_FLAG_DONT_SAVE_TO_DB=8192
+		SCENE_FLAG_CREATE_COLLISIONS=1<<0,
+		SCENE_FLAG_CREATE_PORTALS=1<<1,
+		SCENE_FLAG_CREATE_ROOMS=1<<2,
+		SCENE_FLAG_SIMPLIFY_ROOMS=1<<3,
+		SCENE_FLAG_CREATE_BILLBOARDS=1<<4,
+		SCENE_FLAG_CREATE_IMPOSTORS=1<<5,
+		SCENE_FLAG_CREATE_LODS=1<<6,
+		SCENE_FLAG_CREATE_CARS=1<<8,
+		SCENE_FLAG_CREATE_WHEELS=1<<9,
+		SCENE_FLAG_DETECT_ALPHA=1<<15,
+		SCENE_FLAG_DETECT_VCOLOR=1<<16,
+		SCENE_FLAG_CREATE_NAVMESH=1<<17,
+		SCENE_FLAG_DETECT_LIGHTMAP_LAYER=1<<18,
+
+		SCENE_FLAG_REMOVE_NOIMP=1<<24,
+		SCENE_FLAG_IMPORT_ANIMATIONS=1<<25,
+		SCENE_FLAG_COMPRESS_GEOMETRY=1<<26,
+		SCENE_FLAG_GENERATE_TANGENT_ARRAYS=1<<27,
+		SCENE_FLAG_LINEARIZE_DIFFUSE_TEXTURES=1<<28,
+		SCENE_FLAG_SET_LIGHTMAP_TO_UV2_IF_EXISTS=1<<29,
+		SCENE_FLAG_CONVERT_NORMALMAPS_TO_XY=1<<30,
+	};
+
+	enum SceneUpdate {
+		SCENE_UPDATE_REPLACE_WITH_NEW,
+		SCENE_UPDATE_REPLACE_WITH_NEW_KEEP_MATERIALS,
+		SCENE_UPDATE_KEEP_OLD_MERGE_CHANGES,
+		SCENE_UPDATE_KEEP_OLD,
 	};
 
 
@@ -129,6 +162,9 @@ public:
 	virtual String get_visible_name() const;
 	virtual void import_dialog(const String& p_from="");
 	virtual Error import(const String& p_path, const Ref<ResourceImportMetadata>& p_from);
+
+	Error import1(const Ref<ResourceImportMetadata>& p_from,Node**r_node,List<String> *r_missing=NULL);
+	Error import2(Node* p_scene,const String& p_path, const Ref<ResourceImportMetadata>& p_from);
 
 	void add_importer(const Ref<EditorSceneImporter>& p_importer);
 	const Vector<Ref<EditorSceneImporter> >& get_importers() { return importers; }
@@ -149,7 +185,8 @@ public:
 
 		ANIMATION_DETECT_LOOP=1,
 		ANIMATION_KEEP_VALUE_TRACKS=2,
-		ANIMATION_OPTIMIZE=4
+		ANIMATION_OPTIMIZE=4,
+		ANIMATION_FORCE_ALL_TRACKS_IN_ALL_CLIPS=8
 	};
 
 	virtual String get_name() const;
@@ -161,7 +198,6 @@ public:
 
 
 };
-
 
 
 #endif // EDITOR_SCENE_IMPORT_PLUGIN_H

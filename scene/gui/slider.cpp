@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -49,7 +49,10 @@ void Slider::_input_event(InputEvent p_event) {
 			if (mb.pressed)	{
 				grab.pos=orientation==VERTICAL?mb.y:mb.x;
 				double max = orientation==VERTICAL ? get_size().height : get_size().width ;
-				set_val( ( ( (double)grab.pos / max) * ( get_max() - get_min() ) ) + get_min() ); 
+				if (orientation==VERTICAL)
+					set_val( ( ( -(double)grab.pos / max) * ( get_max() - get_min() ) ) + get_max() );
+				else
+					set_val( ( ( (double)grab.pos / max) * ( get_max() - get_min() ) ) + get_min() );
 				grab.active=true;
 				grab.uvalue=get_unit_value();
 			} else {

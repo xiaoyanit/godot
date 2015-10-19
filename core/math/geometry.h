@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -511,6 +511,20 @@ public:
 		else
 			return p_segment[0]+n*d; // inside
 	}
+
+	static bool is_point_in_triangle(const Vector2& s, const Vector2& a, const Vector2& b, const Vector2& c)
+	{
+	    int as_x = s.x-a.x;
+	    int as_y = s.y-a.y;
+
+	    bool s_ab = (b.x-a.x)*as_y-(b.y-a.y)*as_x > 0;
+
+	    if(((c.x-a.x)*as_y-(c.y-a.y)*as_x > 0) == s_ab) return false;
+
+	    if(((c.x-b.x)*(s.y-b.y)-(c.y-b.y)*(s.x-b.x) > 0) != s_ab) return false;
+
+	    return true;
+	}
 	static Vector2 get_closest_point_to_segment_uncapped_2d(const Vector2& p_point, const Vector2 *p_segment) {
 
 		Vector2 p=p_point-p_segment[0];
@@ -695,6 +709,86 @@ public:
 	}
 
 
+
+	static inline Vector<Vector3> clip_polygon(const Vector<Vector3>& polygon,const Plane& p_plane) {
+
+		enum LocationCache {
+			LOC_INSIDE=1,
+			LOC_BOUNDARY=0,
+			LOC_OUTSIDE=-1
+		};
+
+		if (polygon.size()==0)
+			return polygon;
+
+		int *location_cache = (int*)alloca(sizeof(int)*polygon.size());
+		int inside_count = 0;
+		int outside_count = 0;
+
+		for (int a = 0; a < polygon.size(); a++) {
+			//float p_plane.d = (*this) * polygon[a];
+			float dist = p_plane.distance_to(polygon[a]);
+			if (dist <-CMP_POINT_IN_PLANE_EPSILON) {
+				location_cache[a] = LOC_INSIDE;
+				inside_count++;
+			} else {
+				if (dist > CMP_POINT_IN_PLANE_EPSILON) {
+					location_cache[a] = LOC_OUTSIDE;
+					outside_count++;
+				} else {
+					location_cache[a] = LOC_BOUNDARY;
+				}
+			}
+		}
+
+		if (outside_count == 0) {
+
+			return polygon; // no changes
+
+		} else if (inside_count == 0) {
+
+			return Vector<Vector3>(); //empty
+		}
+
+//		long count = 0;
+		long previous = polygon.size() - 1;
+
+		Vector<Vector3> clipped;
+
+		for (int index = 0; index < polygon.size(); index++) {
+			int loc = location_cache[index];
+			if (loc == LOC_OUTSIDE) {
+				if (location_cache[previous] == LOC_INSIDE) {
+					const Vector3& v1 = polygon[previous];
+					const Vector3& v2 = polygon[index];
+
+					Vector3 segment= v1 - v2;
+					double den=p_plane.normal.dot( segment );
+					double dist=p_plane.distance_to( v1 ) / den;
+					dist=-dist;
+					clipped.push_back( v1 + segment * dist );
+				}
+			} else {
+				const Vector3& v1 = polygon[index];
+				if ((loc == LOC_INSIDE) && (location_cache[previous] == LOC_OUTSIDE)) {
+					const Vector3& v2 = polygon[previous];
+					Vector3 segment= v1 - v2;
+					double den=p_plane.normal.dot( segment );
+					double dist=p_plane.distance_to( v1 ) / den;
+					dist=-dist;
+					clipped.push_back( v1 + segment * dist );
+				}
+
+				clipped.push_back(v1);
+			}
+
+			previous = index;
+		}
+
+		return clipped;
+	}
+
+
 	static Vector<int> triangulate_polygon(const Vector<Vector2>& p_polygon) {
 
 		Vector<int> triangles;
@@ -741,12 +835,67 @@ public:
 	};
 
 
+
+	_FORCE_INLINE_ static int get_uv84_normal_bit(const Vector3& p_vector) {
+
+		int lat = Math::fast_ftoi(Math::floor(Math::acos(p_vector.dot(Vector3(0,1,0)))*4.0/Math_PI+0.5));
+
+		if (lat==0) {
+			return 24;
+		} else if (lat==4) {
+			return 25;
+		}
+
+		int lon = Math::fast_ftoi(Math::floor( (Math_PI+Math::atan2(p_vector.x,p_vector.z))*8.0/(Math_PI*2.0) + 0.5))%8;
+
+		return lon+(lat-1)*8;
+	}
+
+	_FORCE_INLINE_ static int get_uv84_normal_bit_neighbors(int p_idx) {
+
+		if (p_idx==24) {
+			return 1|2|4|8;
+		} else if (p_idx==25) {
+			return (1<<23)|(1<<22)|(1<<21)|(1<<20);
+		} else {
+
+			int ret = 0;
+			if ((p_idx%8) == 0)
+				ret|=(1<<(p_idx+7));
+			else
+				ret|=(1<<(p_idx-1));
+			if ((p_idx%8) == 7)
+				ret|=(1<<(p_idx-7));
+			else
+				ret|=(1<<(p_idx+1));
+
+			int mask = ret|(1<<p_idx);
+			if (p_idx<8)
+				ret|=24;
+			else
+				ret|=mask>>8;
+
+			if (p_idx>=16)
+				ret|=25;
+			else
+				ret|=mask<<8;
+
+			return ret;
+		}
+
+	}
+
+
+
+
 	static MeshData build_convex_mesh(const DVector<Plane> &p_planes);
 	static DVector<Plane> build_sphere_planes(float p_radius, int p_lats, int p_lons, Vector3::Axis p_axis=Vector3::AXIS_Z);
 	static DVector<Plane> build_box_planes(const Vector3& p_extents);
 	static DVector<Plane> build_cylinder_planes(float p_radius, float p_height, int p_sides, Vector3::Axis p_axis=Vector3::AXIS_Z);
 	static DVector<Plane> build_capsule_planes(float p_radius, float p_height, int p_sides, int p_lats, Vector3::Axis p_axis=Vector3::AXIS_Z);
-	
+
+	static void make_atlas(const Vector<Size2i>& p_rects,Vector<Point2i>& r_result, Size2i& r_size);
+
 	
 };
 

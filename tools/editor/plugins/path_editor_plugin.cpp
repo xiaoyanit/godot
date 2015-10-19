@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -500,7 +500,7 @@ void PathEditorPlugin::_close_curve() {
 
 void PathEditorPlugin::_notification(int p_what) {
 
-	if (p_what==NOTIFICATION_ENTER_SCENE) {
+	if (p_what==NOTIFICATION_ENTER_TREE) {
 
 		curve_create->connect("pressed",this,"_mode_changed",make_binds(0));
 		curve_edit->connect("pressed",this,"_mode_changed",make_binds(1));
@@ -564,12 +564,12 @@ PathEditorPlugin::PathEditorPlugin(EditorNode *p_node) {
 	curve_del->set_focus_mode(Control::FOCUS_NONE);
 	curve_del->set_tooltip("Delete Point.");
 	SpatialEditor::get_singleton()->add_control_to_menu_panel(curve_del);
-    curve_close = memnew( ToolButton );
+	curve_close = memnew( ToolButton );
 	curve_close->set_icon(SpatialEditor::get_singleton()->get_icon("CurveClose","EditorIcons"));
 	curve_close->hide();
-    curve_close->set_focus_mode(Control::FOCUS_NONE);
-    curve_close->set_tooltip("Close Curve");
-    SpatialEditor::get_singleton()->add_control_to_menu_panel(curve_close);
+	curve_close->set_focus_mode(Control::FOCUS_NONE);
+	curve_close->set_tooltip("Close Curve");
+	SpatialEditor::get_singleton()->add_control_to_menu_panel(curve_close);
 
 
 

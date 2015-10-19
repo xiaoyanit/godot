@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,7 +33,7 @@
 #include "os/file_access.h"
 #include "editor_node.h"
 #include "io/resource_saver.h"
-
+#include "editor_settings.h"
 
 EditorFileSystem *EditorFileSystem::singleton=NULL;
 
@@ -94,6 +94,12 @@ bool EditorFileSystemDirectory::get_file_meta(int p_idx) const {
 	return files[p_idx].meta.enabled;
 }
 
+Vector<String> EditorFileSystemDirectory::get_file_deps(int p_idx) const {
+
+	ERR_FAIL_INDEX_V(p_idx,files.size(),Vector<String>());
+	return files[p_idx].meta.deps;
+
+}
 Vector<String> EditorFileSystemDirectory::get_missing_sources(int p_idx) const {
 
 	ERR_FAIL_INDEX_V(p_idx,files.size(),Vector<String>());
@@ -118,7 +124,7 @@ bool EditorFileSystemDirectory::is_missing_sources(int p_idx) const {
 	return false;
 }
 
-String EditorFileSystemDirectory::get_file_type(int p_idx) const {
+StringName EditorFileSystemDirectory::get_file_type(int p_idx) const {
 
 	ERR_FAIL_INDEX_V(p_idx,files.size(),"");
 	return files[p_idx].type;
@@ -142,7 +148,7 @@ void EditorFileSystemDirectory::_bind_methods() {
 	ObjectTypeDB::bind_method(_MD("get_file","idx"),&EditorFileSystemDirectory::get_file);
 	ObjectTypeDB::bind_method(_MD("get_file_path","idx"),&EditorFileSystemDirectory::get_file_path);
 	ObjectTypeDB::bind_method(_MD("get_file_types","idx"),&EditorFileSystemDirectory::get_file_type);
-	ObjectTypeDB::bind_method(_MD("is_missing_sources","idx"),&EditorFileSystemDirectory::get_file_type);
+	ObjectTypeDB::bind_method(_MD("is_missing_sources","idx"),&EditorFileSystemDirectory::is_missing_sources);
 	ObjectTypeDB::bind_method(_MD("get_name"),&EditorFileSystemDirectory::get_name);
 	ObjectTypeDB::bind_method(_MD("get_parent"),&EditorFileSystemDirectory::get_parent);
 
@@ -198,6 +204,13 @@ EditorFileSystemDirectory::ImportMeta EditorFileSystem::_get_meta(const String& 
 		}
 		m.import_editor=imd->get_editor();
 	}
+
+	List<String> deps;
+	ResourceLoader::get_dependencies(p_path,&deps);
+	for(List<String>::Element *E=deps.front();E;E=E->next()) {
+		m.deps.push_back(E->get());
+	}
+
 	return m;
 }
 
@@ -357,7 +370,9 @@ void EditorFileSystem::_scan_scenes() {
 
 
 	String project=Globals::get_singleton()->get_resource_path();
-	FileAccess *f =FileAccess::open(project+"/.fscache",FileAccess::READ);
+
+	String fscache = EditorSettings::get_singleton()->get_project_settings_path().plus_file("filesystem_cache");
+	FileAccess *f =FileAccess::open(fscache,FileAccess::READ);
 
 	if (f) {
 		//read the disk cache
@@ -395,7 +410,7 @@ void EditorFileSystem::_scan_scenes() {
 
 			} else {
 				Vector<String> split = l.split("::");
-				ERR_CONTINUE( split.size() != 4);
+				ERR_CONTINUE( split.size() != 5);
 				String name = split[0];
 				String file;
 
@@ -427,6 +442,15 @@ void EditorFileSystem::_scan_scenes() {
 					}
 
 				}
+				String deps = split[4].strip_edges();
+				if (deps.length()) {
+					Vector<String> dp = deps.split("<>");
+					for(int i=0;i<dp.size();i++) {
+						String path=dp[i];
+						fc.meta.deps.push_back(path);
+					}
+				}
+
 				file_cache[name]=fc;
 
 				ERR_CONTINUE(!dc);
@@ -470,7 +494,9 @@ void EditorFileSystem::_scan_scenes() {
 
 
 	//save back the findings
-	f=FileAccess::open(project+"/.fscache",FileAccess::WRITE);
+//	String fscache = EditorSettings::get_singleton()->get_project_settings_path().plus_file("file_cache");
+
+	f=FileAccess::open(fscache,FileAccess::WRITE);
 	_save_type_cache_fs(scandir,f);
 	f->close();
 	memdelete(f);
@@ -526,6 +552,7 @@ void EditorFileSystem::scan() {
 		thread = Thread::create(_thread_func,this,s);
 		//tree->hide();
 		//progress->show();
+
 	}
 
 
@@ -681,12 +708,12 @@ void EditorFileSystem::_notification(int p_what) {
 
 	switch(p_what) {
 
-		case NOTIFICATION_ENTER_SCENE: {
+		case NOTIFICATION_ENTER_TREE: {
 
 			_load_type_cache();
 			    scan();
 		} break;
-		case NOTIFICATION_EXIT_SCENE: {
+		case NOTIFICATION_EXIT_TREE: {
 			if (use_threads && thread) {
 				//abort thread if in progress
 				abort_scan=true;
@@ -794,6 +821,14 @@ void EditorFileSystem::_save_type_cache_fs(DirItem *p_dir,FileAccess *p_file) {
 
 			}
 		}
+		s+="::";
+		for(int j=0;j<p_dir->files[i]->meta.deps.size();j++) {
+
+			if (j>0)
+				s+="<>";
+			s+=p_dir->files[i]->meta.deps[j];
+		}
+
 		p_file->store_line(s);
 	}
 
@@ -940,19 +975,19 @@ String EditorFileSystem::get_file_type(const String& p_file) const {
 EditorFileSystemDirectory *EditorFileSystem::get_path(const String& p_path) {
 
     if (!filesystem || scanning)
-	return false;
+    	return NULL;
 
 
     String f = Globals::get_singleton()->localize_path(p_path);
 
     if (!f.begins_with("res://"))
-	return false;
+    	return NULL;
 
 
     f=f.substr(6,f.length());
     f=f.replace("\\","/");
     if (f==String())
-	return filesystem;
+    	return filesystem;
 
     if (f.ends_with("/"))
 	f=f.substr(0,f.length()-1);
@@ -960,7 +995,7 @@ EditorFileSystemDirectory *EditorFileSystem::get_path(const String& p_path) {
     Vector<String> path = f.split("/");
 
     if (path.size()==0)
-	return false;
+    	return NULL;
 
     EditorFileSystemDirectory *fs=filesystem;
 
@@ -989,7 +1024,37 @@ EditorFileSystemDirectory *EditorFileSystem::get_path(const String& p_path) {
 
 void EditorFileSystem::_resource_saved(const String& p_path){
 
+	print_line("resource saved: "+p_path);
 	EditorFileSystem::get_singleton()->update_file(p_path);
+}
+
+String EditorFileSystem::_find_first_from_source(EditorFileSystemDirectory* p_dir,const String &p_src) const {
+
+	for(int i=0;i<p_dir->files.size();i++) {
+		for(int j=0;j<p_dir->files[i].meta.sources.size();j++) {
+
+			if (p_dir->files[i].meta.sources[j].path==p_src)
+				return p_dir->get_file_path(i);
+		}
+	}
+
+	for(int i=0;i<p_dir->subdirs.size();i++) {
+
+		String ret = _find_first_from_source(p_dir->subdirs[i],p_src);
+		if (ret.length()>0)
+			return ret;
+	}
+
+	return String();
+}
+
+
+String EditorFileSystem::find_resource_from_source(const String& p_path) const {
+
+
+	if (filesystem)
+		return _find_first_from_source(filesystem,p_path);
+	return String();
 }
 
 void EditorFileSystem::update_file(const String& p_file) {
@@ -1003,6 +1068,13 @@ void EditorFileSystem::update_file(const String& p_file) {
 		return;
     }
 
+    if (!FileAccess::exists(p_file)) {
+	    //was removed
+	    fs->files.remove(cpos);
+	    call_deferred("emit_signal","filesystem_changed"); //update later
+	    return;
+
+    }
 
     String type = ResourceLoader::get_resource_type(p_file);
 

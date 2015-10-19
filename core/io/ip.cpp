@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,7 +31,7 @@
 #include "os/semaphore.h"
 #include "hash_map.h"
 
-
+VARIANT_ENUM_CAST(IP::ResolverStatus);
 
 /************* RESOLVER ******************/
 
@@ -183,10 +183,22 @@ void IP::erase_resolve_item(ResolverID p_id) {
 
 	GLOBAL_LOCK_FUNCTION;
 
-	resolver->queue[p_id].status=IP::RESOLVER_STATUS_DONE;
+	resolver->queue[p_id].status=IP::RESOLVER_STATUS_NONE;
 
 }
 
+
+Array IP::_get_local_addresses() const {
+
+	Array addresses;
+	List<IP_Address> ip_addresses;
+	get_local_addresses(&ip_addresses);
+	for(List<IP_Address>::Element *E=ip_addresses.front();E;E=E->next()) {
+		addresses.push_back(E->get());
+	}
+
+	return addresses;
+}
 
 void IP::_bind_methods() {
 
@@ -195,6 +207,7 @@ void IP::_bind_methods() {
 	ObjectTypeDB::bind_method(_MD("get_resolve_item_status","id"),&IP::get_resolve_item_status);
 	ObjectTypeDB::bind_method(_MD("get_resolve_item_address","id"),&IP::get_resolve_item_address);
 	ObjectTypeDB::bind_method(_MD("erase_resolve_item","id"),&IP::erase_resolve_item);
+	ObjectTypeDB::bind_method(_MD("get_local_addresses"),&IP::_get_local_addresses);
 
 	BIND_CONSTANT( RESOLVER_STATUS_NONE );
 	BIND_CONSTANT( RESOLVER_STATUS_WAITING );

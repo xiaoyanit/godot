@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -98,10 +98,13 @@ public:
 		TK_PR_TOOL,
 		TK_PR_STATIC,
 		TK_PR_EXPORT,
+		TK_PR_SETGET,
 		TK_PR_CONST,
 		TK_PR_VAR,
 		TK_PR_PRELOAD,
 		TK_PR_ASSERT,
+		TK_PR_YIELD,
+		TK_PR_SIGNAL,
 		TK_BRACKET_OPEN,
 		TK_BRACKET_CLOSE,
 		TK_CURLY_BRACKET_OPEN,
@@ -116,10 +119,18 @@ public:
 		TK_NEWLINE,
 		TK_ERROR,
 		TK_EOF,
+		TK_CURSOR, //used for code completion
 		TK_MAX
 	};
 
 protected:
+
+	enum StringMode {
+		STRING_SINGLE_QUOTE,
+		STRING_DOUBLE_QUOTE,
+		STRING_MULTILINE
+	};
+
 	static const char* token_names[TK_MAX];
 public:
 	static const char *get_token_name(Token p_token);

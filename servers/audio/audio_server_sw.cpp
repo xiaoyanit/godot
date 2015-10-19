@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -332,6 +332,7 @@ void AudioServerSW::driver_process_chunk(int p_frames,int32_t *p_buffer) {
 void AudioServerSW::driver_process(int p_frames,int32_t *p_buffer) {
 
 
+	_output_delay=p_frames/double(AudioDriverSW::get_singleton()->get_mix_rate());
 	//process in chunks to make sure to never process more than INTERNAL_BUFFER_SIZE
 	int todo=p_frames;
 	while(todo) {
@@ -454,12 +455,12 @@ void AudioServerSW::voice_play(RID p_voice, RID p_sample) {
 
 }
 
-void AudioServerSW::voice_set_volume(RID p_voice, float p_db) {
+void AudioServerSW::voice_set_volume(RID p_voice, float p_volume) {
 
 	VoiceRBSW::Command cmd;
 	cmd.type=VoiceRBSW::Command::CMD_SET_VOLUME;
 	cmd.voice=p_voice;
-	cmd.volume.volume=p_db;
+	cmd.volume.volume=p_volume;
 	voice_rb.push_command(cmd);
 
 }
@@ -502,6 +503,7 @@ void AudioServerSW::voice_set_reverb(RID p_voice, ReverbRoomType p_room_type, fl
 	cmd.voice=p_voice;
 	cmd.reverb.room=p_room_type;
 	cmd.reverb.send=p_reverb;
+
 	voice_rb.push_command(cmd);
 
 }
@@ -794,6 +796,8 @@ void AudioServerSW::init() {
 	mixer = memnew( AudioMixerSW( sample_manager, latency, AudioDriverSW::get_singleton()->get_mix_rate(),mix_chans,mixer_use_fx,mixer_interp,_mixer_callback,this ) );
 	mixer_step_usecs=mixer->get_step_usecs();
 
+	_output_delay=0;
+
 	stream_volume=0.3;
 	// start the audio driver
 	if (AudioDriverSW::get_singleton())
@@ -826,10 +830,14 @@ void AudioServerSW::finish() {
 void AudioServerSW::_update_streams(bool p_thread) {
 
 	_THREAD_SAFE_METHOD_
-	for(List<Stream*>::Element *E=active_audio_streams.front();E;E=E->next()) {
+	for(List<Stream*>::Element *E=active_audio_streams.front();E;) { //stream might be removed durnig this callback
+
+		List<Stream*>::Element *N=E->next();
 
 		if (E->get()->audio_stream && p_thread == E->get()->audio_stream->can_update_mt())
 			E->get()->audio_stream->update();
+
+		E=N;
 	}
 
 }
@@ -908,6 +916,11 @@ void AudioServerSW::set_event_voice_global_volume_scale(float p_volume) {
 float AudioServerSW::get_event_voice_global_volume_scale() const {
 
 	return event_voice_volume_scale;
+}
+
+double AudioServerSW::get_output_delay() const {
+
+	return _output_delay+AudioDriverSW::get_singleton()->get_latency();
 }
 
 double AudioServerSW::get_mix_time() const {

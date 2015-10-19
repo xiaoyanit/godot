@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -40,15 +40,19 @@
  * Images can be loaded from a file, or registered into the Render object as textures.
 */
 
+class Image;
 
+typedef Error (*SavePNGFunc)(const String &p_path, Image& p_img);
 
 class Image {
 
 	enum { 
-		MAX_WIDTH=4096, // force a limit somehow
-		MAX_HEIGHT=4096 // force a limit somehow
+		MAX_WIDTH=16384, // force a limit somehow
+		MAX_HEIGHT=16384// force a limit somehow
 	};
 public:
+
+	static SavePNGFunc save_png_func;
 
 	enum Format {
 		FORMAT_GRAYSCALE, ///< one byte per pixel, 0-255 
@@ -87,10 +91,11 @@ public:
 	
 		INTERPOLATE_NEAREST,
 		INTERPOLATE_BILINEAR,
+		INTERPOLATE_CUBIC,
 		/* INTERPOLATE GAUSS */
 	};
 
-	static Image (*_png_mem_loader_func)(const uint8_t* p_png);
+	static Image (*_png_mem_loader_func)(const uint8_t* p_png,int p_size);
 	static void (*_image_compress_bc_func)(Image *);
 	static void (*_image_compress_pvrtc2_func)(Image *);
 	static void (*_image_compress_pvrtc4_func)(Image *);
@@ -98,6 +103,8 @@ public:
 	static void (*_image_decompress_pvrtc)(Image *);
 	static void (*_image_decompress_bc)(Image *);
 	static void (*_image_decompress_etc)(Image *);
+
+	Error _decompress_bc();
 
 	static DVector<uint8_t> (*lossy_packer)(const Image& p_image,float p_quality);
 	static Image (*lossy_unpacker)(const DVector<uint8_t>& p_buffer);
@@ -214,6 +221,14 @@ public:
 	 * Convert the image to another format, as close as it can be done.
 	 */
 	void convert( Format p_new_format );
+
+	Image converted(int p_new_format) {
+		ERR_FAIL_INDEX_V(p_new_format, FORMAT_MAX, Image());
+
+		Image ret = *this;
+		ret.convert((Format)p_new_format);
+		return ret;
+	};
 	
 	/**
 	 * Get the current image format.
@@ -222,6 +237,7 @@ public:
 
 	int get_mipmap_offset(int p_mipmap) const; //get where the mipmap begins in data
 	void get_mipmap_offset_and_size(int p_mipmap,int &r_ofs, int &r_size) const; //get where the mipmap begins in data
+	void get_mipmap_offset_size_and_dimensions(int p_mipmap,int &r_ofs, int &r_size,int &w, int& h) const; //get where the mipmap begins in data
 
 	/**
 	 * Resize the image, using the prefered interpolation method.
@@ -268,6 +284,7 @@ public:
 	DVector<uint8_t> get_data() const;
 	
 	Error load(const String& p_path);
+	Error save_png(const String& p_path);
 	
 	/** 
 	 * create an empty image
@@ -289,6 +306,7 @@ public:
 	};
 
 	AlphaMode detect_alpha() const;
+	bool is_invisible() const;
 
 	void put_indexed_pixel(int p_x, int p_y, uint8_t p_idx,int p_mipmap=0);
 	uint8_t get_indexed_pixel(int p_x, int p_y,int p_mipmap=0) const;
@@ -317,9 +335,14 @@ public:
 
 	Error compress(CompressMode p_mode=COMPRESS_BC);
 	Image compressed(int p_mode); /* from the Image::CompressMode enum */
-	void decompress();
+	Error decompress();
+	Image decompressed() const;
+	bool is_compressed() const;
 
 	void fix_alpha_edges();
+	void premultiply_alpha();
+	void srgb_to_linear();
+	void normalmap_to_xy();
 
 	void blit_rect(const Image& p_src, const Rect2& p_src_rect,const Point2& p_dest);
 	void brush_transfer(const Image& p_src, const Image& p_brush, const Point2& p_dest);
@@ -329,7 +352,7 @@ public:
 	Image get_rect(const Rect2& p_area) const;
 
 	static void set_compress_bc_func(void (*p_compress_func)(Image *));
-	Image(const uint8_t* p_mem_png);
+	Image(const uint8_t* p_mem_png, int p_len=-1);
 	Image(const char **p_xpm);
 	~Image();
 

@@ -11,7 +11,6 @@ def get_name():
 def can_build():
 
 	#import os
-	print(os.environ)
 	if (not os.environ.has_key("FLASCC_ROOT")):
 		return False
 	return True
@@ -89,6 +88,9 @@ def configure(env):
 	#env["LINKFLAGS"]= string.split(" -g --sysroot="+ld_sysroot+" -Wl,--no-undefined -Wl,-z,noexecstack -lsupc++ ")
 
 	#env.Append(CXXFLAGS=['-fno-access-control'])
+
+	if(env["opus"]=="yes"):
+		env.opus_fixed_point="yes"
 
 	if (env["target"]=="release"):
 

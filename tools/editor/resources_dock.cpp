@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -69,36 +69,8 @@ void ResourcesDock::_tool_selected(int p_tool) {
 			TreeItem *ti = resources->get_selected();
 			if (!ti)
 				break;
-			Ref<Resource> current_res = ti->get_metadata(0);
 
-			RES res(current_res);
-
-			List<String> extensions;
-			ResourceSaver::get_recognized_extensions(res,&extensions);
-			file->set_mode(FileDialog::MODE_SAVE_FILE);
-			//not for now?
-
-			if (current_res->get_path()!="" && current_res->get_path().find("::")==-1) {
-
-				file->set_current_path(current_res->get_path());
-			} else {
-
-				String existing;
-				if (extensions.size()) {
-					existing="new_"+res->get_type().to_lower()+"."+extensions.front()->get().to_lower();
-				}
-
-				file->set_current_file(existing);
-			}
-
-			file->clear_filters();
-			for(int i=0;i<extensions.size();i++) {
-
-				file->add_filter("*."+extensions[i]+" ; "+extensions[i].to_upper());
-			}
-
-			//file->set_current_path(current_path);
-			file->popup_centered_ratio();
+			save_resource_as(ti->get_metadata(0));
 
 
 		} break;
@@ -134,7 +106,7 @@ void ResourcesDock::_notification(int p_what) {
 
 	switch(p_what) {
 
-		case NOTIFICATION_ENTER_SCENE: {
+		case NOTIFICATION_ENTER_TREE: {
 
 			button_new->set_icon(get_icon("New","EditorIcons"));
 			button_open->set_icon(get_icon("Folder","EditorIcons"));
@@ -158,11 +130,11 @@ void ResourcesDock::save_resource(const String& p_path,const Ref<Resource>& p_re
 		flg|=ResourceSaver::FLAG_RELATIVE_PATHS;
 
 	String path = Globals::get_singleton()->localize_path(p_path);
-	Error err = ResourceSaver::save(path,p_resource,flg);
+	Error err = ResourceSaver::save(path,p_resource,flg|ResourceSaver::FLAG_REPLACE_SUBRESOURCE_PATHS);
 
 	if (err!=OK) {
 		accept->set_text("Error saving resource!");
-		accept->popup_centered(Size2(300,100));
+		accept->popup_centered_minsize();
         return;
 	}
 //	EditorFileSystem::get_singleton()->update_file(path,p_resource->get_type());
@@ -174,33 +146,34 @@ void ResourcesDock::save_resource(const String& p_path,const Ref<Resource>& p_re
 
 void ResourcesDock::save_resource_as(const Ref<Resource>& p_resource) {
 
+	current_action=TOOL_SAVE_AS;
 
-	add_resource(p_resource);
-	TreeItem *root=resources->get_root();
-	ERR_FAIL_COND(!root);
+	RES res(p_resource);
 
-	TreeItem *existing=root->get_children();
+	List<String> extensions;
+	ResourceSaver::get_recognized_extensions(res,&extensions);
+	file->set_mode(EditorFileDialog::MODE_SAVE_FILE);
 
-	while(existing) {
+	if (p_resource->get_path()!="" && p_resource->get_path().find("::")==-1) {
 
-		Ref<Resource> r = existing->get_metadata(0);
-		if (r==p_resource) {
-			//existing->move_to_top();
-			existing->select(0);
-			resources->ensure_cursor_is_visible();
-			return; // existing
+		file->set_current_path(p_resource->get_path());
+	} else {
+
+		String existing;
+		if (extensions.size()) {
+			existing="new_"+res->get_type().to_lower()+"."+extensions.front()->get().to_lower();
 		}
-		existing=existing->get_next();
+
+		file->set_current_file(existing);
 	}
 
-	ERR_FAIL_COND(!existing);
+	file->clear_filters();
+	for(int i=0;i<extensions.size();i++) {
 
-	existing->select(0);
+		file->add_filter("*."+extensions[i]+" ; "+extensions[i].to_upper());
+	}
 
-	_tool_selected(TOOL_SAVE_AS);
-
-
-
+	file->popup_centered_ratio();
 
 }
 
@@ -224,6 +197,7 @@ void ResourcesDock::_file_action(const String& p_path) {
 
 			save_resource(p_path,res);
 
+			_update_name(ti);
 
 		} break;
 
@@ -422,7 +396,7 @@ ResourcesDock::ResourcesDock(EditorNode *p_editor) {
 	accept = memnew (AcceptDialog);
 	add_child(accept);
 
-	file = memnew( FileDialog );
+	file = memnew( EditorFileDialog );
 	add_child(file);
 	file->connect("file_selected",this,"_file_action");
 

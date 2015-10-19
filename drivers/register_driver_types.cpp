@@ -20,9 +20,6 @@
 #include "etc1/image_etc.h"
 #include "chibi/event_stream_chibi.h"
 
-#ifdef OPENSSL_ENABLED
-#include "openssl/stream_peer_openssl.h"
-#endif
 
 #ifdef TOOLS_ENABLED
 #include "squish/image_compress_squish.h"
@@ -40,6 +37,9 @@
 #include "vorbis/audio_stream_ogg_vorbis.h"
 #endif
 
+#ifdef OPUS_ENABLED
+#include "opus/audio_stream_opus.h"
+#endif
 
 #ifdef SPEEX_ENABLED
 #include "speex/audio_stream_speex.h"
@@ -49,7 +49,12 @@
 #include "theora/video_stream_theora.h"
 #endif
 
-#include "drivers/trex/regex.h"
+#ifdef THEORAPLAYER_ENABLED
+#include "theoraplayer/video_stream_theoraplayer.h"
+#endif
+
+
+#include "drivers/nrex/regex.h"
 
 #ifdef MUSEPACK_ENABLED
 #include "mpc/audio_stream_mpc.h"
@@ -86,6 +91,10 @@ static ResourceFormatLoaderAudioStreamOGG *vorbis_stream_loader=NULL;
 static ResourceFormatLoaderAudioStreamOGGVorbis *vorbis_stream_loader=NULL;
 #endif
 
+#ifdef OPUS_ENABLED
+static ResourceFormatLoaderAudioStreamOpus *opus_stream_loader=NULL;
+#endif
+
 #ifdef SPEEX_ENABLED
 static ResourceFormatLoaderAudioStreamSpeex *speex_stream_loader=NULL;
 #endif
@@ -94,8 +103,16 @@ static ResourceFormatLoaderAudioStreamSpeex *speex_stream_loader=NULL;
 static ResourceFormatLoaderVideoStreamTheora* theora_stream_loader = NULL;
 #endif
 
+#ifdef THEORAPLAYER_ENABLED
+static ResourceFormatLoaderVideoStreamTheoraplayer* theoraplayer_stream_loader = NULL;
+#endif
+
 #ifdef MUSEPACK_ENABLED
 static ResourceFormatLoaderAudioStreamMPC * mpc_stream_loader=NULL;
+#endif
+
+#ifdef OPENSSL_ENABLED
+#include "openssl/register_openssl.h"
 #endif
 
 void register_core_driver_types() {
@@ -165,6 +182,11 @@ void register_driver_types() {
 	ObjectTypeDB::register_type<AudioStreamOGGVorbis>();
 #endif
 
+#ifdef OPUS_ENABLED
+	opus_stream_loader=memnew( ResourceFormatLoaderAudioStreamOpus );
+	ResourceLoader::add_resource_format_loader( opus_stream_loader );
+	ObjectTypeDB::register_type<AudioStreamOpus>();
+#endif
 
 #ifdef DDS_ENABLED
 	resource_loader_dds = memnew( ResourceFormatDDS );
@@ -197,8 +219,7 @@ void register_driver_types() {
 
 #ifdef OPENSSL_ENABLED
 
-	ObjectTypeDB::register_type<StreamPeerOpenSSL>();
-	StreamPeerOpenSSL::initialize_ssl();
+	register_openssl();
 #endif
 
 #ifdef THEORA_ENABLED
@@ -206,6 +227,13 @@ void register_driver_types() {
 	ResourceLoader::add_resource_format_loader(theora_stream_loader);
 	ObjectTypeDB::register_type<VideoStreamTheora>();
 #endif
+
+#ifdef THEORAPLAYER_ENABLED
+	theoraplayer_stream_loader = memnew( ResourceFormatLoaderVideoStreamTheoraplayer );
+	ResourceLoader::add_resource_format_loader(theoraplayer_stream_loader);
+	ObjectTypeDB::register_type<VideoStreamTheoraplayer>();
+#endif
+
 
 #ifdef TOOLS_ENABLED
 #ifdef SQUISH_ENABLED
@@ -215,7 +243,10 @@ void register_driver_types() {
 #endif
 #endif
 
+#ifdef ETC1_ENABLED
 	_register_etc1_compress_func();
+#endif
+
 	initialize_chibi();
 }
 
@@ -229,13 +260,20 @@ void unregister_driver_types() {
 	memdelete( vorbis_stream_loader );
 #endif
 
+#ifdef OPUS_ENABLED
+	memdelete( opus_stream_loader );
+#endif
+
 #ifdef SPEEX_ENABLED
 	memdelete( speex_stream_loader );
 #endif
 
 #ifdef THEORA_ENABLED
-
 	memdelete (theora_stream_loader);
+#endif
+
+#ifdef THEORAPLAYER_ENABLED
+	memdelete (theoraplayer_stream_loader);
 #endif
 
 #ifdef MUSEPACK_ENABLED
@@ -253,7 +291,7 @@ void unregister_driver_types() {
 
 #ifdef OPENSSL_ENABLED
 
-	StreamPeerOpenSSL::finalize_ssl();
+	unregister_openssl();
 #endif
 
 	finalize_chibi();

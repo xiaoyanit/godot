@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -81,7 +81,11 @@ MutexWindows::MutexWindows() {
 #ifdef WINDOWS_USE_MUTEX
 	mutex = CreateMutex( NULL, FALSE, NULL );
 #else
-    InitializeCriticalSection( &mutex );
+	#ifdef WINRT_ENABLED
+    InitializeCriticalSectionEx( &mutex, 0, 0 );
+	#else
+	InitializeCriticalSection( &mutex );
+	#endif
 #endif
 
 }

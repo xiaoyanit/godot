@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -37,7 +37,11 @@
 #include "servers/spatial_sound_2d/spatial_sound_2d_server_sw.h"
 #include "servers/audio/audio_server_sw.h"
 #include "servers/physics_2d/physics_2d_server_sw.h"
+#include "servers/physics_2d/physics_2d_server_wrap_mt.h"
 #include "servers/visual/rasterizer.h"
+#include "main/input_default.h"
+
+//#ifdef USE_JAVA_FILE_ACCESS
 
 
 #ifdef ANDROID_NATIVE_ACTIVITY
@@ -63,6 +67,7 @@ typedef String (*GetUniqueIDFunc)();
 typedef void (*ShowVirtualKeyboardFunc)(const String&);
 typedef void (*HideVirtualKeyboardFunc)();
 typedef void (*SetScreenOrientationFunc)(int);
+typedef String (*GetSystemDirFunc)(int);
 
 typedef void (*VideoPlayFunc)(const String&);
 typedef bool (*VideoIsPlayingFunc)();
@@ -88,6 +93,7 @@ private:
 
 	bool use_gl2;
 	bool use_reload_hooks;
+	bool use_apk_expansion;
 
 	Rasterizer *rasterizer;
 	VisualServer *visual_server;
@@ -97,6 +103,7 @@ private:
 	SpatialSound2DServerSW *spatial_sound_2d_server;
 	PhysicsServer *physics_server;
 	Physics2DServer *physics_2d_server;
+
 #if 0
 	AudioDriverAndroid audio_driver_android;
 #else
@@ -117,6 +124,7 @@ private:
 	HideVirtualKeyboardFunc hide_virtual_keyboard_func;
 	SetScreenOrientationFunc set_screen_orientation_func;
 	GetUniqueIDFunc get_unique_id_func;
+	GetSystemDirFunc get_system_dir_func;
 
 	VideoPlayFunc video_play_func;
 	VideoIsPlayingFunc video_is_playing_func;
@@ -166,6 +174,8 @@ public:
 	virtual VideoMode get_video_mode(int p_screen=0) const;
 	virtual void get_fullscreen_mode_list(List<VideoMode> *p_list,int p_screen=0) const;
 
+	virtual Size2 get_window_size() const;
+
 	virtual String get_name();
 	virtual MainLoop *get_main_loop() const;
 
@@ -202,18 +212,20 @@ public:
 
 	virtual String get_unique_ID() const;
 
+	virtual String get_system_dir(SystemDir p_dir) const;
+
 
 	void process_accelerometer(const Vector3& p_accelerometer);
 	void process_touch(int p_what,int p_pointer, const Vector<TouchPos>& p_points);
 	void process_event(InputEvent p_event);
 	void init_video_mode(int p_video_width,int p_video_height);
 
-	virtual Error native_video_play(String p_path);
-    virtual bool native_video_is_playing();
-    virtual void native_video_pause();
-    virtual void native_video_stop();
+	virtual Error native_video_play(String p_path, float p_volume);
+	virtual bool native_video_is_playing();
+	virtual void native_video_pause();
+	virtual void native_video_stop();
 
-	OS_Android(GFXInitFunc p_gfx_init_func,void*p_gfx_init_ud, OpenURIFunc p_open_uri_func, GetDataDirFunc p_get_data_dir_func,GetLocaleFunc p_get_locale_func,GetModelFunc p_get_model_func, ShowVirtualKeyboardFunc p_show_vk, HideVirtualKeyboardFunc p_hide_vk,  SetScreenOrientationFunc p_screen_orient,GetUniqueIDFunc p_get_unique_id, VideoPlayFunc p_video_play_func, VideoIsPlayingFunc p_video_is_playing_func, VideoPauseFunc p_video_pause_func, VideoStopFunc p_video_stop_func);
+	OS_Android(GFXInitFunc p_gfx_init_func,void*p_gfx_init_ud, OpenURIFunc p_open_uri_func, GetDataDirFunc p_get_data_dir_func,GetLocaleFunc p_get_locale_func,GetModelFunc p_get_model_func, ShowVirtualKeyboardFunc p_show_vk, HideVirtualKeyboardFunc p_hide_vk,  SetScreenOrientationFunc p_screen_orient,GetUniqueIDFunc p_get_unique_id,GetSystemDirFunc p_get_sdir_func, VideoPlayFunc p_video_play_func, VideoIsPlayingFunc p_video_is_playing_func, VideoPauseFunc p_video_pause_func, VideoStopFunc p_video_stop_func,bool p_use_apk_expansion);
 	~OS_Android();
 
 };

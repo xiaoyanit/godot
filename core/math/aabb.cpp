@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -334,15 +334,6 @@ AABB AABB::grow(real_t p_by) const {
 	AABB aabb=*this;
 	aabb.grow_by(p_by);
 	return aabb;
-}
-void AABB::grow_by(real_t p_amount) {
-
-	pos.x-=p_amount;
-	pos.y-=p_amount;
-	pos.z-=p_amount;
-	size.x+=2.0*p_amount;
-	size.y+=2.0*p_amount;
-	size.z+=2.0*p_amount;
 }
 
 void AABB::get_edge(int p_edge,Vector3& r_from,Vector3& r_to) const {

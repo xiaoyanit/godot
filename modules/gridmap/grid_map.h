@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -37,6 +37,8 @@
 //heh heh, godotsphir!! this shares no code and the design is completely different with previous projects i've done..
 //should scale better with hardware that supports instancing
 
+
+class BakedLightInstance;
 
 class GridMap : public Spatial {
 
@@ -91,6 +93,8 @@ class GridMap : public Spatial {
 
 		Ref<Mesh> baked;
 		RID bake_instance;
+		RID collision_debug;
+		RID collision_debug_instance;
 
 		bool dirty;
 		RID static_body;
@@ -202,6 +206,14 @@ class GridMap : public Spatial {
 
 	void _clear_internal(bool p_keep_areas=false);
 
+	BakedLightInstance *baked_light_instance;
+	bool use_baked_light;
+	void _find_baked_light();
+	void _baked_light_changed();
+
+
+	Array _get_baked_light_meshes();
+
 protected:
 
 	bool _set(const StringName& p_name, const Variant& p_value);
@@ -210,6 +222,7 @@ protected:
 
 	void _notification(int p_what);
 	static void _bind_methods();
+
 
 public:
 
@@ -262,6 +275,8 @@ public:
 
 	void bake_geometry();
 
+	void set_use_baked_light(bool p_use);
+	bool is_using_baked_light() const;
 	void clear();
 
 	GridMap();

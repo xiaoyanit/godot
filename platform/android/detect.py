@@ -20,20 +20,19 @@ def can_build():
 def get_opts():
 
 	return [
-	     ('ANDROID_NDK_ROOT', 'the path to Android NDK', os.environ.get("ANDROID_NDK_ROOT", 0)), 
-             ('NDK_TOOLCHAIN', 'toolchain to use for the NDK',"arm-eabi-4.4.0"), 	                      
-             #android 2.3       
-		 ('ndk_platform', 'compile for platform: (2.2,2.3)',"2.2"),
-		 ('NDK_TARGET', 'toolchain to use for the NDK',"arm-linux-androideabi-4.8"),
-	     ('android_stl','enable STL support in android port (for modules)','no'),
-	     ('armv6','compile for older phones running arm v6 (instead of v7+neon+smp)','no')
-
+			('ANDROID_NDK_ROOT', 'the path to Android NDK', os.environ.get("ANDROID_NDK_ROOT", 0)),
+			('NDK_TOOLCHAIN', 'toolchain to use for the NDK',"arm-eabi-4.4.0"),
+			('NDK_TARGET', 'toolchain to use for the NDK',"arm-linux-androideabi-4.8"),
+			('NDK_TARGET_X86', 'toolchain to use for the NDK x86',"x86-4.8"),
+			('ndk_platform', 'compile for platform: (android-<api> , example: android-15)',"android-15"),
+			('android_arch', 'select compiler architecture: (armv7/armv6/x86)',"armv7"),
+			('android_neon','enable neon (armv7 only)',"yes"),
+			('android_stl','enable STL support in android port (for modules)',"no")
 	]
 
 def get_flags():
 
 	return [
-		('lua', 'no'),
 		('tools', 'no'),
 		('nedmalloc', 'no'),
 		('builtin_zlib', 'no'),
@@ -52,26 +51,82 @@ def create(env):
 
 def configure(env):
 
+	# Workaround for MinGW. See:
+	# http://www.scons.org/wiki/LongCmdLinesOnWin32
+	import os
+	if (os.name=="nt"):
+	
+		import subprocess
+			
+		def mySubProcess(cmdline,env):
+			#print "SPAWNED : " + cmdline
+			startupinfo = subprocess.STARTUPINFO()
+			startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+			proc = subprocess.Popen(cmdline, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+				stderr=subprocess.PIPE, startupinfo=startupinfo, shell = False, env = env)
+			data, err = proc.communicate()
+			rv = proc.wait()
+			if rv:
+				print "====="
+				print err
+				print "====="
+			return rv
+				
+		def mySpawn(sh, escape, cmd, args, env):
+								
+			newargs = ' '.join(args[1:])
+			cmdline = cmd + " " + newargs
+				
+			rv=0
+			if len(cmdline) > 32000 and cmd.endswith("ar") :
+				cmdline = cmd + " " + args[1] + " " + args[2] + " "
+				for i in range(3,len(args)) :
+					rv = mySubProcess( cmdline + args[i], env )
+					if rv :
+						break	
+			else:				
+				rv = mySubProcess( cmdline, env )
+					
+			return rv
+				
+		env['SPAWN'] = mySpawn
+	
+	ndk_platform=env['ndk_platform']
+
+	if env['android_arch'] not in ['armv7','armv6','x86']:
+		env['android_arch']='armv7'
+
+	if env['android_arch']=='x86':
+		env['NDK_TARGET']=env['NDK_TARGET_X86']
+
 	if env['PLATFORM'] == 'win32':
 		import methods
 		env.Tool('gcc')
-		env['SPAWN'] = methods.win32_spawn
+		#env['SPAWN'] = methods.win32_spawn
+		env['SHLIBSUFFIX'] = '.so'
 
-	env.android_source_modules.append("../libs/apk_expansion")	
+	#env.android_source_modules.append("../libs/apk_expansion")	
 	env.android_source_modules.append("../libs/google_play_services")	
-	ndk_platform=""
+	env.android_source_modules.append("../libs/downloader_library")	
+	env.android_source_modules.append("../libs/play_licensing")	
 
-	ndk_platform="android-15"
-
-	print("Godot Android!!!!!")
+	neon_text=""
+	if env["android_arch"]=="armv7" and env['android_neon']=='yes':
+		neon_text=" (with neon)"
+	print("Godot Android!!!!! ("+env['android_arch']+")"+neon_text)
 
 	env.Append(CPPPATH=['#platform/android'])
 	
-	env['OBJSUFFIX'] = ".android.o"
-	env['LIBSUFFIX'] = ".android.a"
-	env['PROGSUFFIX'] = ".android"
-	env['SHLIBSUFFIX'] = ".so"
-	
+	if env['android_arch']=='x86':
+		env.extra_suffix=".x86"+env.extra_suffix
+	elif env['android_arch']=='armv6':
+		env.extra_suffix=".armv6"+env.extra_suffix
+	elif env["android_arch"]=="armv7":
+		if env['android_neon']=='yes':
+			env.extra_suffix=".armv7.neon"+env.extra_suffix
+		else:
+			env.extra_suffix=".armv7"+env.extra_suffix
+
 	gcc_path=env["ANDROID_NDK_ROOT"]+"/toolchains/"+env["NDK_TARGET"]+"/prebuilt/";
 	
 	import os
@@ -84,37 +139,55 @@ def configure(env):
 		gcc_path=gcc_path+"/darwin-x86_64/bin" #this may be wrong
 		env['SHLINKFLAGS'][1] = '-shared'
 	elif (os.name=="nt"):
-		gcc_path=gcc_path+"/windows/bin" #this may be wrong
+		gcc_path=gcc_path+"/windows-x86_64/bin" #this may be wrong
 	
 	
 
 	env['ENV']['PATH'] = gcc_path+":"+env['ENV']['PATH']
+	if env['android_arch']=='x86':
+		env['CC'] = gcc_path+'/i686-linux-android-gcc'
+		env['CXX'] = gcc_path+'/i686-linux-android-g++'
+		env['AR'] = gcc_path+"/i686-linux-android-ar"
+		env['RANLIB'] = gcc_path+"/i686-linux-android-ranlib"
+		env['AS'] = gcc_path+"/i686-linux-android-as"
+	else:
+		env['CC'] = gcc_path+'/arm-linux-androideabi-gcc'
+		env['CXX'] = gcc_path+'/arm-linux-androideabi-g++'
+		env['AR'] = gcc_path+"/arm-linux-androideabi-ar"
+		env['RANLIB'] = gcc_path+"/arm-linux-androideabi-ranlib"
+		env['AS'] = gcc_path+"/arm-linux-androideabi-as"
 
-	env['CC'] = gcc_path+'/arm-linux-androideabi-gcc'
-	env['CXX'] = gcc_path+'/arm-linux-androideabi-g++'
-	env['AR'] = gcc_path+"/arm-linux-androideabi-ar"
-	env['RANLIB'] = gcc_path+"/arm-linux-androideabi-ranlib"
-	env['AS'] = gcc_path+"/arm-linux-androideabi-as"
+	if env['android_arch']=='x86':
+		env['ARCH'] = 'arch-x86'
+	else:
+		env['ARCH'] = 'arch-arm'
 
 	import string
 	#include path
-	gcc_include=env["ANDROID_NDK_ROOT"]+"/platforms/"+ndk_platform+"/arch-arm/usr/include"
-	ld_sysroot=env["ANDROID_NDK_ROOT"]+"/platforms/"+ndk_platform+"/arch-arm"
+	gcc_include=env["ANDROID_NDK_ROOT"]+"/platforms/"+ndk_platform+"/"+env['ARCH'] +"/usr/include"
+	ld_sysroot=env["ANDROID_NDK_ROOT"]+"/platforms/"+ndk_platform+"/"+env['ARCH']
 	#glue_include=env["ANDROID_NDK_ROOT"]+"/sources/android/native_app_glue"
-	ld_path=env["ANDROID_NDK_ROOT"]+"/platforms/"+ndk_platform+"/arch-arm/usr/lib"
+	ld_path=env["ANDROID_NDK_ROOT"]+"/platforms/"+ndk_platform+"/"+env['ARCH']+"/usr/lib"
 	env.Append(CPPPATH=[gcc_include])
 #	env['CCFLAGS'] = string.split('-DNO_THREADS -MMD -MP -MF -fpic -ffunction-sections -funwind-tables -fstack-protector -D__ARM_ARCH_5__ -D__ARM_ARCH_5T__ -D__ARM_ARCH_5E__ -D__ARM_ARCH_5TE__  -Wno-psabi -march=armv5te -mtune=xscale -msoft-float  -fno-exceptions -mthumb -fno-strict-aliasing -DANDROID -Wa,--noexecstack -DGLES2_ENABLED ')
-	print("********* armv6", env['armv6'])
-	if env["armv6"]!="no":
-		env['CCFLAGS'] = string.split('-DNO_STATVFS -MMD -MP -MF -fpic -ffunction-sections -funwind-tables -fstack-protector -D__ARM_ARCH_6__ -D__GLIBC__  -Wno-psabi -march=armv6 -mfpu=vfp -mfloat-abi=softfp -funsafe-math-optimizations -fno-strict-aliasing -DANDROID -Wa,--noexecstack -DGLES2_ENABLED -DGLES1_ENABLED')
-	else:
-		env['CCFLAGS'] = string.split('-DNO_STATVFS -MMD -MP -MF -fpic -ffunction-sections -funwind-tables -fstack-protector -D__ARM_ARCH_7__ -D__GLIBC__  -Wno-psabi -march=armv6 -mfpu=neon -mfloat-abi=softfp -ftree-vectorize -funsafe-math-optimizations -fno-strict-aliasing -DANDROID -Wa,--noexecstack -DGLES2_ENABLED -DGLES1_ENABLED')
+
+	env['neon_enabled']=False
+	if env['android_arch']=='x86':
+		env['CCFLAGS'] = string.split('-DNO_STATVFS -MMD -MP -MF -fpic -ffunction-sections -funwind-tables -fstack-protector -fvisibility=hidden -D__GLIBC__  -Wno-psabi -ftree-vectorize -funsafe-math-optimizations -fno-strict-aliasing -DANDROID -Wa,--noexecstack -DGLES2_ENABLED')
+	elif env["android_arch"]=="armv6":
+		env['CCFLAGS'] = string.split('-DNO_STATVFS -MMD -MP -MF -fpic -ffunction-sections -funwind-tables -fstack-protector -fvisibility=hidden -D__ARM_ARCH_6__ -D__GLIBC__  -Wno-psabi -march=armv6 -mfpu=vfp -mfloat-abi=softfp -funsafe-math-optimizations -fno-strict-aliasing -DANDROID -Wa,--noexecstack -DGLES2_ENABLED')
+	elif env["android_arch"]=="armv7":
+		env['CCFLAGS'] = string.split('-DNO_STATVFS -MMD -MP -MF -fpic -ffunction-sections -funwind-tables -fstack-protector -fvisibility=hidden -D__ARM_ARCH_7__ -D__ARM_ARCH_7A__ -D__GLIBC__  -Wno-psabi -march=armv7-a -mfloat-abi=softfp -ftree-vectorize -funsafe-math-optimizations -fno-strict-aliasing -DANDROID -Wa,--noexecstack -DGLES2_ENABLED')
+		if env['android_neon']=='yes':
+			env['neon_enabled']=True
+			env.Append(CCFLAGS=['-mfpu=neon','-D__ARM_NEON__'])
+		else:
+			env.Append(CCFLAGS=['-mfpu=vfpv3-d16'])
 
 	env.Append(LDPATH=[ld_path])
 	env.Append(LIBS=['OpenSLES'])
 #	env.Append(LIBS=['c','m','stdc++','log','EGL','GLESv1_CM','GLESv2','OpenSLES','supc++','android'])
-	if (env["ndk_platform"]!="2.2"):
-		env.Append(LIBS=['EGL','OpenSLES','android'])
+	env.Append(LIBS=['EGL','OpenSLES','android'])
 	env.Append(LIBS=['c','m','stdc++','log','GLESv1_CM','GLESv2', 'z'])
 
 	env["LINKFLAGS"]= string.split(" -g --sysroot="+ld_sysroot+" -Wl,--no-undefined -Wl,-z,noexecstack ")
@@ -123,38 +196,36 @@ def configure(env):
 	if (env["target"]=="release"):
 
 		env.Append(CCFLAGS=['-O2', '-ffast-math','-fomit-frame-pointer'])
-		env['OBJSUFFIX'] = "_opt"+env['OBJSUFFIX']
-		env['LIBSUFFIX'] = "_opt"+env['LIBSUFFIX']
 
 	elif (env["target"]=="release_debug"):
 
 		env.Append(CCFLAGS=['-O2', '-ffast-math','-DDEBUG_ENABLED'])
-		env['OBJSUFFIX'] = "_optd"+env['OBJSUFFIX']
-		env['LIBSUFFIX'] = "_optd"+env['LIBSUFFIX']
-
-	elif (env["target"]=="profile"):
-
-		env.Append(CCFLAGS=['-O2', '-ffast-math','-fomit-frame-pointer', '-g1'])
-		env.Append(LIBPATH=['#platform/android/armeabi'])
-		env.Append(LIBS=['andprof'])
-		env['OBJSUFFIX'] = "_prof"+env['OBJSUFFIX']
-		env['LIBSUFFIX'] = "_prof"+env['LIBSUFFIX']
-		env['SHLIBSUFFIX'] = "_prof"+env['SHLIBSUFFIX']
 
 	elif (env["target"]=="debug"):
 
 		env.Append(CCFLAGS=['-D_DEBUG', '-g1', '-Wall', '-O0', '-DDEBUG_ENABLED'])
 		env.Append(CPPFLAGS=['-DDEBUG_MEMORY_ALLOC'])
 
-	if env["armv6"] == "no":
-		env['neon_enabled']=True
 	env.Append(CPPFLAGS=['-DANDROID_ENABLED', '-DUNIX_ENABLED', '-DNO_FCNTL','-DMPC_FIXED_POINT'])
 #	env.Append(CPPFLAGS=['-DANDROID_ENABLED', '-DUNIX_ENABLED','-DMPC_FIXED_POINT'])
+
+	if(env["opus"]=="yes"):
+		env.Append(CFLAGS=["-DOPUS_ARM_OPT"])
+		env.opus_fixed_point="yes"
+
 	if (env['android_stl']=='yes'):
 		#env.Append(CCFLAGS=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/system/include"])
-		env.Append(CPPPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gnu-libstdc++/4.4.3/include"])
-		env.Append(CPPPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gnu-libstdc++/4.4.3/libs/armeabi/include"])
-		env.Append(LIBPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gnu-libstdc++/4.4.3/libs/armeabi"])
+		env.Append(CPPPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gnu-libstdc++/4.8/include"])
+		if env['android_arch']=='x86':
+			env.Append(CPPPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gnu-libstdc++/4.8/libs/x86/include"])
+			env.Append(LIBPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gnu-libstdc++/4.8/libs/x86"])
+		elif env['android_arch']=='armv6':
+			env.Append(CPPPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gnu-libstdc++/4.8/libs/armeabi/include"])
+			env.Append(LIBPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gnu-libstdc++/4.8/libs/armeabi"])
+		elif env["android_arch"]=="armv7":
+			env.Append(CPPPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gnu-libstdc++/4.8/libs/armeabi-v7a/include"])
+			env.Append(LIBPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gnu-libstdc++/4.8/libs/armeabi-v7a"])
+		
 		env.Append(LIBS=["gnustl_static","supc++"])
 		env.Append(CPPPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cpufeatures"])
 
@@ -165,7 +236,12 @@ def configure(env):
 
 		env.Append(CPPPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gabi++/include"])
 		env.Append(CPPPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cpufeatures"])
-		env.Append(LIBPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gabi++/libs/armeabi"])
+		if env['android_arch']=='x86':
+			env.Append(LIBPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gabi++/libs/x86"])
+		elif env["android_arch"]=="armv6":
+			env.Append(LIBPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gabi++/libs/armeabi"])
+		elif env["android_arch"]=="armv7":
+			env.Append(LIBPATH=[env["ANDROID_NDK_ROOT"]+"/sources/cxx-stl/gabi++/libs/armeabi-v7a"])
 		env.Append(LIBS=['gabi++_static'])
 		env.Append(CCFLAGS=["-fno-exceptions",'-DNO_SAFE_CAST'])
 
@@ -173,4 +249,3 @@ def configure(env):
 	env.Append( BUILDERS = { 'GLSL120' : env.Builder(action = methods.build_legacygl_headers, suffix = 'glsl.h',src_suffix = '.glsl') } )
 	env.Append( BUILDERS = { 'GLSL' : env.Builder(action = methods.build_glsl_headers, suffix = 'glsl.h',src_suffix = '.glsl') } )
 	env.Append( BUILDERS = { 'GLSL120GLES' : env.Builder(action = methods.build_gles2_headers, suffix = 'glsl.h',src_suffix = '.glsl') } )
-

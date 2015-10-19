@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,6 +32,9 @@
 #import <OpenGLES/ES1/gl.h>
 #import <OpenGLES/ES1/glext.h>
 #import <MediaPlayer/MediaPlayer.h>
+#import <AVFoundation/AVFoundation.h>
+
+#define USE_CADISPLAYLINK      0   //iOS version 3.1+ is required
 
 @protocol GLViewDelegate;
 
@@ -50,8 +53,14 @@
 	// OpenGL name for the depth buffer that is attached to viewFramebuffer, if it exists (0 if it does not exist)
 	GLuint depthRenderbuffer;
 	
+#if USE_CADISPLAYLINK
+	// CADisplayLink available on 3.1+ synchronizes the animation timer & drawing with the refresh rate of the display, only supports animation intervals of 1/60 1/30 & 1/15
+	CADisplayLink *displayLink;
+#else
 	// An animation timer that, when animation is started, will periodically call -drawView at the given rate.
 	NSTimer *animationTimer;
+#endif
+	
 	NSTimeInterval animationInterval;
 	
 	// Delegate to do our drawing, called by -drawView, which can be called manually or via the animation timer.
@@ -66,6 +75,13 @@
 
 @property(nonatomic, assign) id<GLViewDelegate> delegate;
 
+// AVPlayer-related properties
+@property(strong, nonatomic) AVAsset *avAsset;
+@property(strong, nonatomic) AVPlayerItem *avPlayerItem;
+@property(strong, nonatomic) AVPlayer *avPlayer;
+@property(strong, nonatomic) AVPlayerLayer *avPlayerLayer;
+
+// Old videoplayer properties
 @property(strong, nonatomic) MPMoviePlayerController *moviePlayerController;
 @property(strong, nonatomic) UIWindow *backgroundWindow;
 
@@ -84,6 +100,8 @@
 - (id)initGLES;
 - (BOOL)createFramebuffer;
 - (void)destroyFramebuffer;
+
+- (void)audioRouteChangeListenerCallback:(NSNotification*)notification;
 
 @property NSTimeInterval animationInterval;
 

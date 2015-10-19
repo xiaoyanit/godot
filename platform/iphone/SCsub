@@ -12,6 +12,7 @@ iphone_lib = [
 	'view_controller.mm',
 	'game_center.mm',
 	'in_app_store.mm',
+	'icloud.mm',
 	'Appirater.m',
 ]
 
@@ -25,8 +26,6 @@ env_ios = env.Clone();
 if env['ios_gles22_override'] == "yes":
 	env_ios.Append(CPPFLAGS=['-DGLES2_OVERRIDE'])
 
-if env['ios_GLES1_override'] == "yes":
-	env_ios.Append(CPPFLAGS=['-DGLES1_OVERRIDE'])
 
 if env['ios_appirater'] == "yes":
 	env_ios.Append(CPPFLAGS=['-DAPPIRATER_ENABLED'])
@@ -35,11 +34,6 @@ if env['ios_appirater'] == "yes":
 obj = env_ios.Object('godot_iphone.cpp')
 
 prog = None
-if env["target"]=="release":
-	prog = env_ios.Program('#bin/godot_opt', [obj] + iphone_lib)
-	#action = "dsymutil "+File(prog)[0].path+" -o ../build/script_exec/build/Debug-iphoneos/script_exec.app.dSYM"
-	#env.AddPostAction(prog, action)
-else:
-	prog = env_ios.Program('#bin/godot', [obj] + iphone_lib)
-	action = "dsymutil "+File(prog)[0].path+" -o bin/godot.iphone.dSYM"
-	env.AddPostAction(prog, action)
+prog = env_ios.Program('#bin/godot', [obj] + iphone_lib)
+action = "$IPHONEPATH/usr/bin/dsymutil "+File(prog)[0].path+" -o " + File(prog)[0].path + ".dSYM"
+env.AddPostAction(prog, action)

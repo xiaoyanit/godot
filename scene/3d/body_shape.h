@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -37,23 +37,39 @@ class CollisionShape : public Spatial {
 	OBJ_TYPE( CollisionShape, Spatial );
 	OBJ_CATEGORY("3D Physics Nodes");
 
+	Ref<Shape> shape;
+
+	/*
 	RID _get_visual_instance_rid() const;
 
-	Ref<Shape> shape;
 
 	void _update_indicator();
 
 	RID material;
 	RID indicator;
 	RID indicator_instance;
+	*/
+
+	Node* debug_shape;
 
 	void resource_changed(RES res);
 
 	bool updating_body;
+	bool unparenting;
 	bool trigger;
+
+	bool can_update_body;
+
+	int update_shape_index;
 
 	void _update_body();
 	void _add_to_collision_object(Object* p_cshape);
+
+	void _set_update_shape_index(int p_index);
+	int _get_update_shape_index() const;
+
+	void _create_debug_shape();
+
 protected:
 
 	void _notification(int p_what);
@@ -69,8 +85,10 @@ public:
 	void set_updating_body(bool p_update);
 	bool is_updating_body() const;
 
-    void set_trigger(bool p_trigger);
-    bool is_trigger() const;
+	void set_trigger(bool p_trigger);
+	bool is_trigger() const;
+
+	int get_collision_object_shape_index() const { return _get_update_shape_index(); }
 
 	CollisionShape();
 	~CollisionShape();

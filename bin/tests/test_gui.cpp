@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -58,7 +58,7 @@
 namespace TestGUI {
 
 
-class TestMainLoop : public SceneMainLoop {
+class TestMainLoop : public SceneTree {
 
 
 	Control *control;
@@ -72,7 +72,7 @@ public:
 	}
 	virtual void init() {
 	
-		SceneMainLoop::init();
+		SceneTree::init();
 
 
 #if 0
@@ -109,6 +109,9 @@ public:
 		frame->set_anchor( MARGIN_RIGHT, Control::ANCHOR_END );
 		frame->set_anchor( MARGIN_BOTTOM, Control::ANCHOR_END );
 		frame->set_end( Point2(0,0) );
+
+		Ref<Theme> t = memnew( Theme );
+		frame->set_theme(t);
 		
 		get_root()->add_child( frame );
 
@@ -140,10 +143,10 @@ public:
 
 		img.resize(512,512);
 		img.generate_mipmaps();
-		img.compress();
-		Ref<Texture> text = memnew( Texture );
-		text->create_from_image(img);
-		tf->set_texture(text);
+		img.compress(Image::COMPRESS_PVRTC4);
+		Ref<ImageTexture> tt = memnew( ImageTexture );
+		tt->create_from_image(img);
+		tf->set_texture(tt);
 		tf->set_pos(Point2(50,50));
 		//tf->set_scale(Point2(0.3,0.3));
 
@@ -305,7 +308,7 @@ public:
 		richtext->push_color(Color(1,0.5,0.5));
 		richtext->add_text("leprechauns");
 		richtext->pop();
-#if 0
+
 		richtext->add_text(" and ");
 		richtext->push_color(Color(0,1.0,0.5));
 		richtext->add_text("faeries.\n");
@@ -329,7 +332,7 @@ public:
 		richtext->pop();
 		richtext->add_text("of the rich text label for huge text (not like this text will really be huge but, you know).\nAs long as it is so long that it will work nicely for a test/demo, then it's welcomed in my book...\nChanging subject, the day is cloudy today and I'm wondering if I'll get che chance to travel somewhere nice. Sometimes, watching the clouds from satellite images may give a nice insight about how pressure zones in our planet work, althogh it also makes it pretty obvious to see why most weather forecasts get it wrong so often.\nClouds are so difficult to predict!\nBut it's pretty cool how our civilization has adapted to having water falling from the sky each time it rains...");
 		//richtext->add_text("Hello!\nGorgeous..");
-#endif
+
 
 		//richtext->push_meta("http://www.scrollingcapabilities.xz");
 		///richtext->add_text("Hello!\n");

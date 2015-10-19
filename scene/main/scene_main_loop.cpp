@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -41,16 +41,21 @@
 #include "scene/scene_string_names.h"
 #include "io/resource_loader.h"
 #include "viewport.h"
+#include "scene/resources/packed_scene.h"
+#include "scene/resources/material.h"
+#include "scene/resources/mesh.h"
 
-
-void SceneMainLoop::tree_changed() {
+void SceneTree::tree_changed() {
 
 	tree_version++;
 	emit_signal(tree_changed_name);
 }
 
-void SceneMainLoop::node_removed(Node *p_node) {
+void SceneTree::node_removed(Node *p_node) {
 
+	if (current_scene==p_node) {
+		current_scene=NULL;
+	}
 	emit_signal(node_removed_name,p_node);
 	if (call_lock>0)
 		call_skip.insert(p_node);
@@ -59,7 +64,7 @@ void SceneMainLoop::node_removed(Node *p_node) {
 }
 
 
-void SceneMainLoop::add_to_group(const StringName& p_group, Node *p_node) {
+void SceneTree::add_to_group(const StringName& p_group, Node *p_node) {
 
 	Map<StringName,Group>::Element *E=group_map.find(p_group);
 	if (!E) {
@@ -74,7 +79,7 @@ void SceneMainLoop::add_to_group(const StringName& p_group, Node *p_node) {
 	E->get().last_tree_version=0;
 }
 
-void SceneMainLoop::remove_from_group(const StringName& p_group, Node *p_node) {
+void SceneTree::remove_from_group(const StringName& p_group, Node *p_node) {
 
 	Map<StringName,Group>::Element *E=group_map.find(p_group);
 	ERR_FAIL_COND(!E);
@@ -85,7 +90,7 @@ void SceneMainLoop::remove_from_group(const StringName& p_group, Node *p_node) {
 		group_map.erase(E);
 }
 
-void SceneMainLoop::_flush_transform_notifications() {
+void SceneTree::_flush_transform_notifications() {
 
 	SelfList<Node>* n = xform_change_list.first();
 	while(n) {
@@ -98,7 +103,7 @@ void SceneMainLoop::_flush_transform_notifications() {
 	}
 }
 
-void SceneMainLoop::_flush_ugc() {
+void SceneTree::_flush_ugc() {
 
 	ugc_locked=true;
 
@@ -118,7 +123,7 @@ void SceneMainLoop::_flush_ugc() {
 	ugc_locked=false;
 }
 
-void SceneMainLoop::_update_group_order(Group& g) {
+void SceneTree::_update_group_order(Group& g) {
 
 	if (g.last_tree_version==tree_version)
 		return;
@@ -134,7 +139,7 @@ void SceneMainLoop::_update_group_order(Group& g) {
 }
 
 
-void SceneMainLoop::call_group(uint32_t p_call_flags,const StringName& p_group,const StringName& p_function,VARIANT_ARG_DECLARE) {
+void SceneTree::call_group(uint32_t p_call_flags,const StringName& p_group,const StringName& p_function,VARIANT_ARG_DECLARE) {
 
 	Map<StringName,Group>::Element *E=group_map.find(p_group);
 	if (!E)
@@ -216,7 +221,7 @@ void SceneMainLoop::call_group(uint32_t p_call_flags,const StringName& p_group,c
 		call_skip.clear();
 }
 
-void SceneMainLoop::notify_group(uint32_t p_call_flags,const StringName& p_group,int p_notification) {
+void SceneTree::notify_group(uint32_t p_call_flags,const StringName& p_group,int p_notification) {
 
 	Map<StringName,Group>::Element *E=group_map.find(p_group);
 	if (!E)
@@ -266,7 +271,7 @@ void SceneMainLoop::notify_group(uint32_t p_call_flags,const StringName& p_group
 		call_skip.clear();
 }
 
-void SceneMainLoop::set_group(uint32_t p_call_flags,const StringName& p_group,const String& p_name,const Variant& p_value) {
+void SceneTree::set_group(uint32_t p_call_flags,const StringName& p_group,const String& p_name,const Variant& p_value) {
 
 	Map<StringName,Group>::Element *E=group_map.find(p_group);
 	if (!E)
@@ -316,12 +321,12 @@ void SceneMainLoop::set_group(uint32_t p_call_flags,const StringName& p_group,co
 		call_skip.clear();
 }
 
-void SceneMainLoop::set_input_as_handled() {
+void SceneTree::set_input_as_handled() {
 
 	input_handled=true;
 }
 
-void SceneMainLoop::input_text( const String& p_text ) {
+void SceneTree::input_text( const String& p_text ) {
 
 	root_lock++;
 
@@ -330,16 +335,20 @@ void SceneMainLoop::input_text( const String& p_text ) {
 
 }
 
-void SceneMainLoop::input_event( const InputEvent& p_event ) {
+void SceneTree::input_event( const InputEvent& p_event ) {
 
+
+	if (is_editor_hint() && (p_event.type==InputEvent::JOYSTICK_MOTION || p_event.type==InputEvent::JOYSTICK_BUTTON))
+		return; //avoid joy input on editor
 
 	root_lock++;
-	last_id=p_event.ID;
+	//last_id=p_event.ID;
 
 	input_handled=false;
 
 
 	InputEvent ev = p_event;
+	ev.ID=++last_id; //this should work better
 #if 0
 	switch(ev.type) {
 
@@ -393,7 +402,7 @@ void SceneMainLoop::input_event( const InputEvent& p_event ) {
 
 #endif
 
-	MainLoop::input_event(p_event);
+	MainLoop::input_event(ev);
 #if 0
 	_call_input_pause("input","_input",ev);
 
@@ -415,7 +424,7 @@ void SceneMainLoop::input_event( const InputEvent& p_event ) {
 	//transform for the rest
 #else
 
-	call_group(GROUP_CALL_REALTIME,"_viewports","_vp_input",p_event); //special one for GUI, as controls use their own process check
+	call_group(GROUP_CALL_REALTIME,"_viewports","_vp_input",ev); //special one for GUI, as controls use their own process check
 
 #endif
 	if (ScriptDebugger::get_singleton() && ScriptDebugger::get_singleton()->is_remote() && ev.type==InputEvent::KEY && ev.key.pressed && !ev.key.echo && ev.key.scancode==KEY_F8) {
@@ -440,7 +449,7 @@ void SceneMainLoop::input_event( const InputEvent& p_event ) {
 		}
 #else
 
-		call_group(GROUP_CALL_REALTIME,"_viewports","_vp_unhandled_input",p_event); //special one for GUI, as controls use their own process check
+		call_group(GROUP_CALL_REALTIME,"_viewports","_vp_unhandled_input",ev); //special one for GUI, as controls use their own process check
 
 #endif
 		input_handled=true;
@@ -455,7 +464,7 @@ void SceneMainLoop::input_event( const InputEvent& p_event ) {
 
 }
 
-void SceneMainLoop::init() {
+void SceneTree::init() {
 
 	//_quit=false;
 	accept_quit=true;
@@ -463,15 +472,14 @@ void SceneMainLoop::init() {
 	input_handled=false;
 
 
-	editor_hint=false;
 	pause=false;
 
-	root->_set_scene(this);
+	root->_set_tree(this);
 	MainLoop::init();
 
 }
 
-bool SceneMainLoop::iteration(float p_time) {
+bool SceneTree::iteration(float p_time) {
 
 
 	root_lock++;
@@ -481,8 +489,10 @@ bool SceneMainLoop::iteration(float p_time) {
 	_flush_transform_notifications();
 
 	MainLoop::iteration(p_time);
-
 	fixed_process_time=p_time;
+
+	emit_signal("fixed_frame");
+
 	_notify_group_pause("fixed_process",Node::NOTIFICATION_FIXED_PROCESS);
 	_flush_ugc();
 	_flush_transform_notifications();
@@ -494,7 +504,7 @@ bool SceneMainLoop::iteration(float p_time) {
 	return _quit;
 }
 
-bool SceneMainLoop::idle(float p_time){
+bool SceneTree::idle(float p_time){
 
 
 //	print_line("ram: "+itos(OS::get_singleton()->get_static_memory_usage())+" sram: "+itos(OS::get_singleton()->get_dynamic_memory_usage()));
@@ -506,6 +516,8 @@ bool SceneMainLoop::idle(float p_time){
 	MainLoop::idle(p_time);
 
 	idle_process_time=p_time;
+
+	emit_signal("idle_frame");
 
 	_flush_transform_notifications();
 
@@ -534,7 +546,7 @@ bool SceneMainLoop::idle(float p_time){
 	return _quit;
 }
 
-void SceneMainLoop::finish() {
+void SceneTree::finish() {
 
 	_flush_delete_queue();
 
@@ -545,7 +557,7 @@ void SceneMainLoop::finish() {
 	MainLoop::finish();
 
 	if (root) {
-		root->_set_scene(NULL);
+		root->_set_tree(NULL);
 		memdelete(root); //delete root
 	}
 
@@ -560,12 +572,12 @@ void SceneMainLoop::finish() {
 }
 
 
-void SceneMainLoop::quit() {
+void SceneTree::quit() {
 
 	_quit=true;
 }
 
-void SceneMainLoop::_notification(int p_notification) {
+void SceneTree::_notification(int p_notification) {
 
 
 
@@ -580,6 +592,7 @@ void SceneMainLoop::_notification(int p_notification) {
 				break;
 			}
 		} break;
+		case NOTIFICATION_OS_MEMORY_WARNING:
 		case NOTIFICATION_WM_FOCUS_IN:
 		case NOTIFICATION_WM_FOCUS_OUT: {
 
@@ -597,22 +610,191 @@ void SceneMainLoop::_notification(int p_notification) {
 };
 
 
-void SceneMainLoop::set_auto_accept_quit(bool p_enable) {
+void SceneTree::set_auto_accept_quit(bool p_enable) {
 
 	accept_quit=p_enable;
 }
 
-void SceneMainLoop::set_editor_hint(bool p_enabled) {
+void SceneTree::set_editor_hint(bool p_enabled) {
 
 	editor_hint=p_enabled;
 }
 
-bool SceneMainLoop::is_editor_hint() const {
+bool SceneTree::is_editor_hint() const {
 
 	return editor_hint;
 }
 
-void SceneMainLoop::set_pause(bool p_enabled) {
+void SceneTree::set_debug_collisions_hint(bool p_enabled) {
+
+	debug_collisions_hint=p_enabled;
+}
+
+bool SceneTree::is_debugging_collisions_hint() const {
+
+	return debug_collisions_hint;
+}
+
+void SceneTree::set_debug_navigation_hint(bool p_enabled) {
+
+	debug_navigation_hint=p_enabled;
+}
+
+bool SceneTree::is_debugging_navigation_hint() const {
+
+	return debug_navigation_hint;
+}
+
+void SceneTree::set_debug_collisions_color(const Color& p_color) {
+
+	debug_collisions_color=p_color;
+}
+
+Color SceneTree::get_debug_collisions_color() const {
+
+	return debug_collisions_color;
+}
+
+void SceneTree::set_debug_collision_contact_color(const Color& p_color) {
+
+	debug_collision_contact_color=p_color;
+}
+
+Color SceneTree::get_debug_collision_contact_color() const {
+
+	return debug_collision_contact_color;
+}
+
+void SceneTree::set_debug_navigation_color(const Color& p_color) {
+
+	debug_navigation_color=p_color;
+}
+
+Color SceneTree::get_debug_navigation_color() const {
+
+	return debug_navigation_color;
+}
+
+void SceneTree::set_debug_navigation_disabled_color(const Color& p_color) {
+
+	debug_navigation_disabled_color=p_color;
+}
+
+Color SceneTree::get_debug_navigation_disabled_color() const {
+
+	return debug_navigation_disabled_color;
+}
+
+Ref<Material> SceneTree::get_debug_navigation_material() {
+
+	if (navigation_material.is_valid())
+		return navigation_material;
+
+	Ref<FixedMaterial> line_material = Ref<FixedMaterial>( memnew( FixedMaterial ));
+	line_material->set_flag(Material::FLAG_UNSHADED, true);
+	line_material->set_line_width(3.0);
+	line_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
+	line_material->set_fixed_flag(FixedMaterial::FLAG_USE_COLOR_ARRAY, true);
+	line_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,get_debug_navigation_color());
+
+	navigation_material=line_material;
+
+	return navigation_material;
+
+}
+
+Ref<Material> SceneTree::get_debug_navigation_disabled_material(){
+
+	if (navigation_disabled_material.is_valid())
+		return navigation_disabled_material;
+
+	Ref<FixedMaterial> line_material = Ref<FixedMaterial>( memnew( FixedMaterial ));
+	line_material->set_flag(Material::FLAG_UNSHADED, true);
+	line_material->set_line_width(3.0);
+	line_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
+	line_material->set_fixed_flag(FixedMaterial::FLAG_USE_COLOR_ARRAY, true);
+	line_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,get_debug_navigation_disabled_color());
+
+	navigation_disabled_material=line_material;
+
+	return navigation_disabled_material;
+
+}
+Ref<Material> SceneTree::get_debug_collision_material() {
+
+	if (collision_material.is_valid())
+		return collision_material;
+
+
+	Ref<FixedMaterial> line_material = Ref<FixedMaterial>( memnew( FixedMaterial ));
+	line_material->set_flag(Material::FLAG_UNSHADED, true);
+	line_material->set_line_width(3.0);
+	line_material->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA, true);
+	line_material->set_fixed_flag(FixedMaterial::FLAG_USE_COLOR_ARRAY, true);
+	line_material->set_parameter(FixedMaterial::PARAM_DIFFUSE,get_debug_collisions_color());
+
+	collision_material=line_material;
+
+	return collision_material;
+}
+
+Ref<Mesh> SceneTree::get_debug_contact_mesh() {
+
+	if (debug_contact_mesh.is_valid())
+		return debug_contact_mesh;
+
+	debug_contact_mesh = Ref<Mesh>( memnew( Mesh ) );
+
+	Ref<FixedMaterial> mat = memnew( FixedMaterial );
+	mat->set_flag(Material::FLAG_UNSHADED,true);
+	mat->set_flag(Material::FLAG_DOUBLE_SIDED,true);
+	mat->set_fixed_flag(FixedMaterial::FLAG_USE_ALPHA,true);
+	mat->set_parameter(FixedMaterial::PARAM_DIFFUSE,get_debug_collision_contact_color());
+
+	Vector3 diamond[6]={
+		Vector3(-1, 0, 0),
+		Vector3( 1, 0, 0),
+		Vector3( 0, -1, 0),
+		Vector3( 0, 1, 0),
+		Vector3( 0, 0, -1),
+		Vector3( 0, 0, 1)
+	};
+
+	int diamond_faces[8*3]={
+		0,2,4,
+		0,3,4,
+		1,2,4,
+		1,3,4,
+		0,2,5,
+		0,3,5,
+		1,2,5,
+		1,3,5,
+	};
+
+	DVector<int> indices;
+	for(int i=0;i<8*3;i++)
+		indices.push_back(diamond_faces[i]);
+
+	DVector<Vector3> vertices;
+	for(int i=0;i<6;i++)
+		vertices.push_back(diamond[i]*0.1);
+
+	Array arr;
+	arr.resize(Mesh::ARRAY_MAX);
+	arr[Mesh::ARRAY_VERTEX]=vertices;
+	arr[Mesh::ARRAY_INDEX]=indices;
+
+
+	debug_contact_mesh->add_surface(Mesh::PRIMITIVE_TRIANGLES,arr);
+	debug_contact_mesh->surface_set_material(0,mat);
+
+	return debug_contact_mesh;
+
+}
+
+
+
+void SceneTree::set_pause(bool p_enabled) {
 
 	if (p_enabled==pause)
 		return;
@@ -623,12 +805,12 @@ void SceneMainLoop::set_pause(bool p_enabled) {
 		get_root()->propagate_notification(p_enabled ? Node::NOTIFICATION_PAUSED : Node::NOTIFICATION_UNPAUSED);
 }
 
-bool SceneMainLoop::is_paused() const {
+bool SceneTree::is_paused() const {
 
 	return pause;
 }
 
-void SceneMainLoop::_call_input_pause(const StringName& p_group,const StringName& p_method,const InputEvent& p_input) {
+void SceneTree::_call_input_pause(const StringName& p_group,const StringName& p_method,const InputEvent& p_input) {
 
 	Map<StringName,Group>::Element *E=group_map.find(p_group);
 	if (!E)
@@ -673,7 +855,7 @@ void SceneMainLoop::_call_input_pause(const StringName& p_group,const StringName
 		call_skip.clear();
 }
 
-void SceneMainLoop::_notify_group_pause(const StringName& p_group,int p_notification) {
+void SceneTree::_notify_group_pause(const StringName& p_group,int p_notification) {
 
 	Map<StringName,Group>::Element *E=group_map.find(p_group);
 	if (!E)
@@ -723,13 +905,13 @@ void SceneMainLoop::_update_listener_2d() {
 }
 */
 
-uint32_t SceneMainLoop::get_last_event_id() const {
+uint32_t SceneTree::get_last_event_id() const {
 
 	return last_id;
 }
 
 
-Variant SceneMainLoop::_call_group(const Variant** p_args, int p_argcount, Variant::CallError& r_error) {
+Variant SceneTree::_call_group(const Variant** p_args, int p_argcount, Variant::CallError& r_error) {
 
 
 	r_error.error=Variant::CallError::CALL_OK;
@@ -754,13 +936,13 @@ Variant SceneMainLoop::_call_group(const Variant** p_args, int p_argcount, Varia
 }
 
 
-int64_t SceneMainLoop::get_frame() const {
+int64_t SceneTree::get_frame() const {
 
 	return current_frame;
 }
 
 
-Array SceneMainLoop::_get_nodes_in_group(const StringName& p_group) {
+Array SceneTree::_get_nodes_in_group(const StringName& p_group) {
 
 	Array ret;
 	Map<StringName,Group>::Element *E=group_map.find(p_group);
@@ -783,7 +965,7 @@ Array SceneMainLoop::_get_nodes_in_group(const StringName& p_group) {
 	return ret;
 }
 
-void SceneMainLoop::get_nodes_in_group(const StringName& p_group,List<Node*> *p_list) {
+void SceneTree::get_nodes_in_group(const StringName& p_group,List<Node*> *p_list) {
 
 
 	Map<StringName,Group>::Element *E=group_map.find(p_group);
@@ -813,9 +995,9 @@ static void _fill_array(Node *p_node, Array& array, int p_level) {
 	}
 }
 
-void SceneMainLoop::_debugger_request_tree(void *self) {
+void SceneTree::_debugger_request_tree(void *self) {
 
-	SceneMainLoop *sml = (SceneMainLoop *)self;
+	SceneTree *sml = (SceneTree *)self;
 
 	Array arr;
 	_fill_array(sml->root,arr,0);
@@ -823,7 +1005,7 @@ void SceneMainLoop::_debugger_request_tree(void *self) {
 }
 
 
-void SceneMainLoop::_flush_delete_queue() {
+void SceneTree::_flush_delete_queue() {
 
 	_THREAD_SAFE_METHOD_
 
@@ -837,21 +1019,22 @@ void SceneMainLoop::_flush_delete_queue() {
 	}
 }
 
-void SceneMainLoop::queue_delete(Object *p_object) {
+void SceneTree::queue_delete(Object *p_object) {
 
 	_THREAD_SAFE_METHOD_
 	ERR_FAIL_NULL(p_object);
+	p_object->_is_queued_for_deletion = true;
 	delete_queue.push_back(p_object->get_instance_ID());
 }
 
 
-int SceneMainLoop::get_node_count() const {
+int SceneTree::get_node_count() const {
 
 	return node_count;
 }
 
 
-void SceneMainLoop::_update_root_rect() {
+void SceneTree::_update_root_rect() {
 
 
 	if (stretch_mode==STRETCH_MODE_DISABLED) {
@@ -954,7 +1137,7 @@ void SceneMainLoop::_update_root_rect() {
 
 }
 
-void SceneMainLoop::set_screen_stretch(StretchMode p_mode,StretchAspect p_aspect,const Size2 p_minsize) {
+void SceneTree::set_screen_stretch(StretchMode p_mode,StretchAspect p_aspect,const Size2 p_minsize) {
 
 	stretch_mode=p_mode;
 	stretch_aspect=p_aspect;
@@ -963,35 +1146,478 @@ void SceneMainLoop::set_screen_stretch(StretchMode p_mode,StretchAspect p_aspect
 }
 
 
-void SceneMainLoop::_bind_methods() {
+#ifdef TOOLS_ENABLED
+void SceneTree::set_edited_scene_root(Node *p_node) {
+	edited_scene_root=p_node;
+}
+
+Node *SceneTree::get_edited_scene_root() const {
+
+	return edited_scene_root;
+}
+#endif
+
+void SceneTree::set_current_scene(Node* p_scene) {
+
+	ERR_FAIL_COND(p_scene && p_scene->get_parent()!=root);
+	current_scene=p_scene;
+}
+
+Node* SceneTree::get_current_scene() const{
+
+	return current_scene;
+}
+
+void SceneTree::_change_scene(Node* p_to) {
+
+	if (current_scene) {
+		memdelete( current_scene );
+		current_scene=NULL;
+	}
+
+	if (p_to) {
+		current_scene=p_to;
+		root->add_child(p_to);
+	}
+}
+
+Error SceneTree::change_scene(const String& p_path){
+
+	Ref<PackedScene> new_scene = ResourceLoader::load(p_path);
+	if (new_scene.is_null())
+		return ERR_CANT_OPEN;
+
+	return change_scene_to(new_scene);
+
+}
+Error SceneTree::change_scene_to(const Ref<PackedScene>& p_scene){
+
+	Node *new_scene=NULL;
+	if (p_scene.is_valid()) {
+		new_scene = p_scene->instance();
+		ERR_FAIL_COND_V(!new_scene,ERR_CANT_CREATE);
+	}
+
+	call_deferred("_change_scene",new_scene);
+	return OK;
+
+}
+Error SceneTree::reload_current_scene() {
+
+	ERR_FAIL_COND_V(!current_scene,ERR_UNCONFIGURED);
+	String fname = current_scene->get_filename();
+	return change_scene(fname);
+}
+
+void SceneTree::add_current_scene(Node * p_current) {
+
+	current_scene=p_current;
+	root->add_child(p_current);
+}
+#ifdef DEBUG_ENABLED
+
+void SceneTree::_live_edit_node_path_func(const NodePath &p_path,int p_id) {
+
+	live_edit_node_path_cache[p_id]=p_path;
+}
+
+void SceneTree::_live_edit_res_path_func(const String &p_path,int p_id) {
+
+	live_edit_resource_cache[p_id]=p_path;
+}
+
+void SceneTree::_live_edit_node_set_func(int p_id,const StringName& p_prop,const Variant& p_value) {
+
+	if (!live_edit_node_path_cache.has(p_id))
+		return;
+
+	NodePath np = live_edit_node_path_cache[p_id];
+	Node *base = NULL;
+	if (root->has_node(live_edit_root))
+		base = root->get_node(live_edit_root);
+
+	Map<String,Set<Node*> >::Element *E=live_scene_edit_cache.find(live_edit_scene);
+	if (!E)
+		return; //scene not editable
+
+	for(Set<Node*>::Element *F=E->get().front();F;F=F->next()) {
+
+		Node *n=F->get();
+
+		if (base && !base->is_a_parent_of(n))
+			continue;
+
+		if (!n->has_node(np))
+			continue;
+		Node *n2 = n->get_node(np);
+
+		n2->set(p_prop,p_value);
+	}
+
+}
+
+void SceneTree::_live_edit_node_set_res_func(int p_id,const StringName& p_prop,const String& p_value) {
+
+	RES r = ResourceLoader::load(p_value);
+	if (!r.is_valid())
+		return;
+	_live_edit_node_set_func(p_id,p_prop,r);
+
+}
+void SceneTree::_live_edit_node_call_func(int p_id,const StringName& p_method,VARIANT_ARG_DECLARE) {
+
+	if (!live_edit_node_path_cache.has(p_id))
+		return;
+
+	NodePath np = live_edit_node_path_cache[p_id];
+	Node *base = NULL;
+	if (root->has_node(live_edit_root))
+		base = root->get_node(live_edit_root);
+
+	Map<String,Set<Node*> >::Element *E=live_scene_edit_cache.find(live_edit_scene);
+	if (!E)
+		return; //scene not editable
+
+	for(Set<Node*>::Element *F=E->get().front();F;F=F->next()) {
+
+		Node *n=F->get();
+
+		if (base && !base->is_a_parent_of(n))
+			continue;
+
+		if (!n->has_node(np))
+			continue;
+		Node *n2 = n->get_node(np);
+
+		n2->call(p_method,VARIANT_ARG_PASS);
+	}
+}
+void SceneTree::_live_edit_res_set_func(int p_id,const StringName& p_prop,const Variant& p_value) {
+
+	if (!live_edit_resource_cache.has(p_id))
+		return;
+
+	String resp = live_edit_resource_cache[p_id];
+
+	if (!ResourceCache::has(resp))
+		return;
+
+	RES r = ResourceCache::get(resp);
+	if (!r.is_valid())
+		return;
+
+	r->set(p_prop,p_value);
+}
+void SceneTree::_live_edit_res_set_res_func(int p_id,const StringName& p_prop,const String& p_value) {
+
+	RES r = ResourceLoader::load(p_value);
+	if (!r.is_valid())
+		return;
+	_live_edit_res_set_func(p_id,p_prop,r);
+
+}
+void SceneTree::_live_edit_res_call_func(int p_id,const StringName& p_method,VARIANT_ARG_DECLARE) {
+
+	if (!live_edit_resource_cache.has(p_id))
+		return;
+
+	String resp = live_edit_resource_cache[p_id];
+
+	if (!ResourceCache::has(resp))
+		return;
+
+	RES r = ResourceCache::get(resp);
+	if (!r.is_valid())
+		return;
+
+	r->call(p_method,VARIANT_ARG_PASS);
+}
+
+void SceneTree::_live_edit_root_func(const NodePath& p_scene_path,const String& p_scene_from) {
+
+	live_edit_root=p_scene_path;
+	live_edit_scene=p_scene_from;
+}
+
+void SceneTree::_live_edit_create_node_func(const NodePath& p_parent,const String& p_type,const String& p_name) {
+
+
+	Node *base = NULL;
+	if (root->has_node(live_edit_root))
+		base = root->get_node(live_edit_root);
+
+	Map<String,Set<Node*> >::Element *E=live_scene_edit_cache.find(live_edit_scene);
+	if (!E)
+		return; //scene not editable
+
+	for(Set<Node*>::Element *F=E->get().front();F;F=F->next()) {
+
+		Node *n=F->get();
+
+		if (base && !base->is_a_parent_of(n))
+			continue;
+
+		if (!n->has_node(p_parent))
+			continue;
+		Node *n2 = n->get_node(p_parent);
+
+		Object *o = ObjectTypeDB::instance(p_type);
+		if (!o)
+			continue;
+		Node *no=o->cast_to<Node>();
+		no->set_name(p_name);
+
+		n2->add_child(no);
+	}
+}
+void SceneTree::_live_edit_instance_node_func(const NodePath& p_parent,const String& p_path,const String& p_name){
+
+	Ref<PackedScene> ps = ResourceLoader::load(p_path);
+
+	if (!ps.is_valid())
+		return;
+
+	Node *base = NULL;
+	if (root->has_node(live_edit_root))
+		base = root->get_node(live_edit_root);
+
+	Map<String,Set<Node*> >::Element *E=live_scene_edit_cache.find(live_edit_scene);
+	if (!E)
+		return; //scene not editable
+
+	for(Set<Node*>::Element *F=E->get().front();F;F=F->next()) {
+
+		Node *n=F->get();
+
+		if (base && !base->is_a_parent_of(n))
+			continue;
+
+		if (!n->has_node(p_parent))
+			continue;
+		Node *n2 = n->get_node(p_parent);
+
+
+
+		Node *no=ps->instance();
+		no->set_name(p_name);
+
+		n2->add_child(no);
+	}
+}
+void SceneTree::_live_edit_remove_node_func(const NodePath& p_at){
+
+	Node *base = NULL;
+	if (root->has_node(live_edit_root))
+		base = root->get_node(live_edit_root);
+
+	Map<String,Set<Node*> >::Element *E=live_scene_edit_cache.find(live_edit_scene);
+	if (!E)
+		return; //scene not editable
+
+	for(Set<Node*>::Element *F=E->get().front();F;) {
+
+		Set<Node*>::Element *N=F->next();
+
+		Node *n=F->get();
+
+		if (base && !base->is_a_parent_of(n))
+			continue;
+
+		if (!n->has_node(p_at))
+			continue;
+		Node *n2 = n->get_node(p_at);
+
+		memdelete(n2);
+
+		F=N;
+
+	}
+}
+void SceneTree::_live_edit_remove_and_keep_node_func(const NodePath& p_at,ObjectID p_keep_id){
+
+	Node *base = NULL;
+	if (root->has_node(live_edit_root))
+		base = root->get_node(live_edit_root);
+
+	Map<String,Set<Node*> >::Element *E=live_scene_edit_cache.find(live_edit_scene);
+	if (!E)
+		return; //scene not editable
+
+
+	for(Set<Node*>::Element *F=E->get().front();F;) {
+
+		Set<Node*>::Element *N=F->next();
+
+		Node *n=F->get();
+
+		if (base && !base->is_a_parent_of(n))
+			continue;
+
+		if (!n->has_node(p_at))
+			continue;
+
+		Node *n2 = n->get_node(p_at);
+
+		n2->get_parent()->remove_child(n2);
+
+		live_edit_remove_list[n][p_keep_id]=n2;
+
+		F=N;
+
+	}
+}
+void SceneTree::_live_edit_restore_node_func(ObjectID p_id,const NodePath& p_at,int p_at_pos){
+
+
+	Node *base = NULL;
+	if (root->has_node(live_edit_root))
+		base = root->get_node(live_edit_root);
+
+	Map<String,Set<Node*> >::Element *E=live_scene_edit_cache.find(live_edit_scene);
+	if (!E)
+		return; //scene not editable
+
+	for(Set<Node*>::Element *F=E->get().front();F;) {
+
+		Set<Node*>::Element *N=F->next();
+
+		Node *n=F->get();
+
+		if (base && !base->is_a_parent_of(n))
+			continue;
+
+		if (!n->has_node(p_at))
+			continue;
+		Node *n2 = n->get_node(p_at);
+
+		Map<Node*,Map<ObjectID,Node*> >::Element *EN=live_edit_remove_list.find(n);
+
+		if (!EN)
+			continue;
+
+		Map<ObjectID,Node*>::Element *FN=EN->get().find(p_id);
+
+		if (!FN)
+			continue;
+		n2->add_child(FN->get());
+
+		EN->get().erase(FN);
+
+		if (EN->get().size()==0) {
+			live_edit_remove_list.erase(EN);
+		}
+
+		F=N;
+
+	}
+}
+void SceneTree::_live_edit_duplicate_node_func(const NodePath& p_at,const String& p_new_name){
+
+	Node *base = NULL;
+	if (root->has_node(live_edit_root))
+		base = root->get_node(live_edit_root);
+
+	Map<String,Set<Node*> >::Element *E=live_scene_edit_cache.find(live_edit_scene);
+	if (!E)
+		return; //scene not editable
+
+	for(Set<Node*>::Element *F=E->get().front();F;F=F->next()) {
+
+		Node *n=F->get();
+
+		if (base && !base->is_a_parent_of(n))
+			continue;
+
+		if (!n->has_node(p_at))
+			continue;
+		Node *n2 = n->get_node(p_at);
+
+		Node *dup = n2->duplicate(true);
+
+		if (!dup)
+			continue;
+
+		dup->set_name(p_new_name);
+		n2->get_parent()->add_child(dup);
+
+	}
+}
+void SceneTree::_live_edit_reparent_node_func(const NodePath& p_at,const NodePath& p_new_place,const String& p_new_name,int p_at_pos){
+
+	Node *base = NULL;
+	if (root->has_node(live_edit_root))
+		base = root->get_node(live_edit_root);
+
+	Map<String,Set<Node*> >::Element *E=live_scene_edit_cache.find(live_edit_scene);
+	if (!E)
+		return; //scene not editable
+
+	for(Set<Node*>::Element *F=E->get().front();F;F=F->next()) {
+
+		Node *n=F->get();
+
+		if (base && !base->is_a_parent_of(n))
+			continue;
+
+		if (!n->has_node(p_at))
+			continue;
+		Node *nfrom = n->get_node(p_at);
+
+		if (!n->has_node(p_new_place))
+			continue;
+		Node *nto = n->get_node(p_new_place);
+
+		nfrom->get_parent()->remove_child(nfrom);
+		nfrom->set_name(p_new_name);
+
+		nto->add_child(nfrom);
+		if (p_at_pos>=0)
+			nto->move_child(nfrom,p_at_pos);
+
+	}
+}
+
+
+#endif
+void SceneTree::_bind_methods() {
 
 
 	//ObjectTypeDB::bind_method(_MD("call_group","call_flags","group","method","arg1","arg2"),&SceneMainLoop::_call_group,DEFVAL(Variant()),DEFVAL(Variant()));
-	ObjectTypeDB::bind_method(_MD("notify_group","call_flags","group","notification"),&SceneMainLoop::notify_group);
-	ObjectTypeDB::bind_method(_MD("set_group","call_flags","group","property","value"),&SceneMainLoop::set_group);
+	ObjectTypeDB::bind_method(_MD("notify_group","call_flags","group","notification"),&SceneTree::notify_group);
+	ObjectTypeDB::bind_method(_MD("set_group","call_flags","group","property","value"),&SceneTree::set_group);
 
-	ObjectTypeDB::bind_method(_MD("get_nodes_in_group"),&SceneMainLoop::_get_nodes_in_group);
+	ObjectTypeDB::bind_method(_MD("get_nodes_in_group"),&SceneTree::_get_nodes_in_group);
 
-	ObjectTypeDB::bind_method(_MD("get_root:Viewport"),&SceneMainLoop::get_root);
+	ObjectTypeDB::bind_method(_MD("get_root:Viewport"),&SceneTree::get_root);
 
-	ObjectTypeDB::bind_method(_MD("set_auto_accept_quit","enabled"),&SceneMainLoop::set_auto_accept_quit);
+	ObjectTypeDB::bind_method(_MD("set_auto_accept_quit","enabled"),&SceneTree::set_auto_accept_quit);
 
-	ObjectTypeDB::bind_method(_MD("set_editor_hint","enable"),&SceneMainLoop::set_editor_hint);
-	ObjectTypeDB::bind_method(_MD("is_editor_hint"),&SceneMainLoop::is_editor_hint);
+	ObjectTypeDB::bind_method(_MD("set_editor_hint","enable"),&SceneTree::set_editor_hint);
+	ObjectTypeDB::bind_method(_MD("is_editor_hint"),&SceneTree::is_editor_hint);
+	ObjectTypeDB::bind_method(_MD("set_debug_collisions_hint","enable"),&SceneTree::set_debug_collisions_hint);
+	ObjectTypeDB::bind_method(_MD("is_debugging_collisions_hint"),&SceneTree::is_debugging_collisions_hint);
+	ObjectTypeDB::bind_method(_MD("set_debug_navigation_hint","enable"),&SceneTree::set_debug_navigation_hint);
+	ObjectTypeDB::bind_method(_MD("is_debugging_navigation_hint"),&SceneTree::is_debugging_navigation_hint);
 
-	ObjectTypeDB::bind_method(_MD("set_pause","enable"),&SceneMainLoop::set_pause);
-	ObjectTypeDB::bind_method(_MD("is_paused"),&SceneMainLoop::is_paused);
-	ObjectTypeDB::bind_method(_MD("set_input_as_handled"),&SceneMainLoop::set_input_as_handled);
+#ifdef TOOLS_ENABLED
+	ObjectTypeDB::bind_method(_MD("set_edited_scene_root","scene"),&SceneTree::set_edited_scene_root);
+	ObjectTypeDB::bind_method(_MD("get_edited_scene_root"),&SceneTree::get_edited_scene_root);
+#endif
+
+	ObjectTypeDB::bind_method(_MD("set_pause","enable"),&SceneTree::set_pause);
+	ObjectTypeDB::bind_method(_MD("is_paused"),&SceneTree::is_paused);
+	ObjectTypeDB::bind_method(_MD("set_input_as_handled"),&SceneTree::set_input_as_handled);
 
 
-	ObjectTypeDB::bind_method(_MD("get_node_count"),&SceneMainLoop::get_node_count);
-	ObjectTypeDB::bind_method(_MD("get_frame"),&SceneMainLoop::get_frame);
-	ObjectTypeDB::bind_method(_MD("quit"),&SceneMainLoop::quit);
+	ObjectTypeDB::bind_method(_MD("get_node_count"),&SceneTree::get_node_count);
+	ObjectTypeDB::bind_method(_MD("get_frame"),&SceneTree::get_frame);
+	ObjectTypeDB::bind_method(_MD("quit"),&SceneTree::quit);
 
-	ObjectTypeDB::bind_method(_MD("set_screen_stretch","mode","aspect","minsize"),&SceneMainLoop::set_screen_stretch);
+	ObjectTypeDB::bind_method(_MD("set_screen_stretch","mode","aspect","minsize"),&SceneTree::set_screen_stretch);
+
+	ObjectTypeDB::bind_method(_MD("queue_delete","obj"),&SceneTree::queue_delete);
 
 
-	ObjectTypeDB::bind_method(_MD("queue_delete","obj"),&SceneMainLoop::queue_delete);
 
 
 	MethodInfo mi;
@@ -1005,11 +1631,24 @@ void SceneMainLoop::_bind_methods() {
 		defargs.push_back(Variant());
 	}
 
-	ObjectTypeDB::bind_native_method(METHOD_FLAGS_DEFAULT,"call_group",&SceneMainLoop::_call_group,mi,defargs);
+	ObjectTypeDB::bind_native_method(METHOD_FLAGS_DEFAULT,"call_group",&SceneTree::_call_group,mi,defargs);
+
+	ObjectTypeDB::bind_method(_MD("set_current_scene","child_node:Node"),&SceneTree::set_current_scene);
+	ObjectTypeDB::bind_method(_MD("get_current_scene:Node"),&SceneTree::get_current_scene);
+
+	ObjectTypeDB::bind_method(_MD("change_scene","path"),&SceneTree::change_scene);
+	ObjectTypeDB::bind_method(_MD("change_scene_to","packed_scene:PackedScene"),&SceneTree::change_scene_to);
+
+	ObjectTypeDB::bind_method(_MD("reload_current_scene"),&SceneTree::reload_current_scene);
+
+	ObjectTypeDB::bind_method(_MD("_change_scene"),&SceneTree::_change_scene);
 
 	ADD_SIGNAL( MethodInfo("tree_changed") );
 	ADD_SIGNAL( MethodInfo("node_removed",PropertyInfo( Variant::OBJECT, "node") ) );
 	ADD_SIGNAL( MethodInfo("screen_resized") );
+
+	ADD_SIGNAL( MethodInfo("idle_frame"));
+	ADD_SIGNAL( MethodInfo("fixed_frame"));
 
 	BIND_CONSTANT( GROUP_CALL_DEFAULT );
 	BIND_CONSTANT( GROUP_CALL_REVERSE );
@@ -1026,14 +1665,27 @@ void SceneMainLoop::_bind_methods() {
 
 }
 
-SceneMainLoop::SceneMainLoop() {
+SceneTree *SceneTree::singleton=NULL;
 
+SceneTree::SceneTree() {
+
+	singleton=this;
 	_quit=false;
 	initialized=false;
+	editor_hint=false;
+	debug_collisions_hint=false;
+	debug_navigation_hint=false;
+	debug_collisions_color=GLOBAL_DEF("debug/collision_shape_color",Color(0.0,0.6,0.7,0.5));
+	debug_collision_contact_color=GLOBAL_DEF("debug/collision_contact_color",Color(1.0,0.2,0.1,0.8));
+	debug_navigation_color=GLOBAL_DEF("debug/navigation_geometry_color",Color(0.1,1.0,0.7,0.4));
+	debug_navigation_disabled_color=GLOBAL_DEF("debug/navigation_disabled_geometry_color",Color(1.0,0.7,0.1,0.4));
+	collision_debug_contacts=GLOBAL_DEF("debug/collision_max_contacts_displayed",10000);
+
+
 	tree_version=1;
 	fixed_process_time=1;
 	idle_process_time=1;
-	last_id=0;
+	last_id=1;
 	root=NULL;
 	current_frame=0;
 	tree_changed_name="tree_changed";
@@ -1051,6 +1703,7 @@ SceneMainLoop::SceneMainLoop() {
 	//root->set_world_2d( Ref<World2D>( memnew( World2D )));
 	root->set_as_audio_listener(true);
 	root->set_as_audio_listener_2d(true);
+	current_scene=NULL;
 
 	stretch_mode=STRETCH_MODE_DISABLED;
 	stretch_aspect=STRETCH_ASPECT_IGNORE;
@@ -1062,10 +1715,47 @@ SceneMainLoop::SceneMainLoop() {
 		ScriptDebugger::get_singleton()->set_request_scene_tree_message_func(_debugger_request_tree,this);
 	}
 
+	root->set_physics_object_picking(GLOBAL_DEF("physics/enable_object_picking",true));
+
+#ifdef TOOLS_ENABLED
+	edited_scene_root=NULL;
+#endif
+
+#ifdef DEBUG_ENABLED
+
+
+	live_edit_funcs.udata=this;
+	live_edit_funcs.node_path_func=_live_edit_node_path_funcs;
+	live_edit_funcs.res_path_func=_live_edit_res_path_funcs;
+	live_edit_funcs.node_set_func=_live_edit_node_set_funcs;
+	live_edit_funcs.node_set_res_func=_live_edit_node_set_res_funcs;
+	live_edit_funcs.node_call_func=_live_edit_node_call_funcs;
+	live_edit_funcs.res_set_func=_live_edit_res_set_funcs;
+	live_edit_funcs.res_set_res_func=_live_edit_res_set_res_funcs;
+	live_edit_funcs.res_call_func=_live_edit_res_call_funcs;
+	live_edit_funcs.root_func=_live_edit_root_funcs;
+
+	live_edit_funcs.tree_create_node_func=_live_edit_create_node_funcs;
+	live_edit_funcs.tree_instance_node_func=_live_edit_instance_node_funcs;
+	live_edit_funcs.tree_remove_node_func=_live_edit_remove_node_funcs;
+	live_edit_funcs.tree_remove_and_keep_node_func=_live_edit_remove_and_keep_node_funcs;
+	live_edit_funcs.tree_restore_node_func=_live_edit_restore_node_funcs;
+	live_edit_funcs.tree_duplicate_node_func=_live_edit_duplicate_node_funcs;
+	live_edit_funcs.tree_reparent_node_func=_live_edit_reparent_node_funcs;
+
+	if (ScriptDebugger::get_singleton()) {
+		ScriptDebugger::get_singleton()->set_live_edit_funcs(&live_edit_funcs);
+	}
+
+	live_edit_root=NodePath("/root");
+
+#endif
+
+
 }
 
 
-SceneMainLoop::~SceneMainLoop() {
+SceneTree::~SceneTree() {
 
 
 }

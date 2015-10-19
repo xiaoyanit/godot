@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -27,7 +27,7 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 #include "editor_sample_import_plugin.h"
-#include "scene/gui/file_dialog.h"
+#include "tools/editor/editor_file_dialog.h"
 #include "tools/editor/editor_dir_dialog.h"
 #include "tools/editor/editor_node.h"
 #include "tools/editor/property_editor.h"
@@ -40,6 +40,12 @@ class _EditorSampleImportOptions : public Object {
 
 	OBJ_TYPE(_EditorSampleImportOptions,Object);
 public:
+
+	enum CompressMode {
+		COMPRESS_MODE_DISABLED,
+		COMPRESS_MODE_RAM,
+		COMPRESS_MODE_DISK
+	};
 
 	enum CompressBitrate {
 		COMPRESS_64,
@@ -57,7 +63,7 @@ public:
 	bool edit_normalize;
 	bool edit_loop;
 
-	bool compress_enable;
+	CompressMode compress_mode;
 	CompressBitrate compress_bitrate;
 
 
@@ -78,8 +84,8 @@ public:
 			edit_normalize=p_value;
 		else if (n=="edit/loop")
 			edit_loop=p_value;
-		else if (n=="compress/enable")
-			compress_enable=p_value;
+		else if (n=="compress/mode")
+			compress_mode=CompressMode(int(p_value));
 		else if (n=="compress/bitrate")
 			compress_bitrate=CompressBitrate(int(p_value));
 		else
@@ -106,8 +112,8 @@ public:
 			r_ret=edit_normalize;
 		else if (n=="edit/loop")
 			r_ret=edit_loop;
-		else if (n=="compress/enable")
-			r_ret=compress_enable;
+		else if (n=="compress/mode")
+			r_ret=compress_mode;
 		else if (n=="compress/bitrate")
 			r_ret=compress_bitrate;
 		else
@@ -125,7 +131,7 @@ public:
 		p_list->push_back(PropertyInfo(Variant::BOOL,"edit/trim"));
 		p_list->push_back(PropertyInfo(Variant::BOOL,"edit/normalize"));
 		p_list->push_back(PropertyInfo(Variant::BOOL,"edit/loop"));
-		//p_list->push_back(PropertyInfo(Variant::BOOL,"compress/enable"));
+		p_list->push_back(PropertyInfo(Variant::INT,"compress/mode",PROPERTY_HINT_ENUM,"Disabled,RAM (Ima-ADPCM)"));
 		//p_list->push_back(PropertyInfo(Variant::INT,"compress/bitrate",PROPERTY_HINT_ENUM,"64,96,128,192"));
 
 
@@ -150,7 +156,7 @@ public:
 		edit_normalize=true;
 		edit_loop=false;
 
-		compress_enable=false;
+		compress_mode=COMPRESS_MODE_DISABLED;
 		compress_bitrate=COMPRESS_128;
 	}
 
@@ -165,7 +171,7 @@ class EditorSampleImportDialog : public ConfirmationDialog {
 
 	LineEdit *import_path;
 	LineEdit *save_path;
-	FileDialog *file_select;
+	EditorFileDialog *file_select;
 	EditorDirDialog *save_select;
 	ConfirmationDialog *error_dialog;
 	PropertyEditor *option_editor;
@@ -248,6 +254,24 @@ public:
 			error_dialog->popup_centered(Size2(200,100));
 		}
 
+		if (save_path->get_text().strip_edges()=="") {
+			error_dialog->set_text("Target path is empty.");
+			error_dialog->popup_centered_minsize();
+			return;
+		}
+
+		if (!save_path->get_text().begins_with("res://")) {
+			error_dialog->set_text("Target path must be full resource path.");
+			error_dialog->popup_centered_minsize();
+			return;
+		}
+
+		if (!DirAccess::exists(save_path->get_text())) {
+			error_dialog->set_text("Target path must exist.");
+			error_dialog->popup_centered_minsize();
+			return;
+		}
+
 		for(int i=0;i<samples.size();i++) {
 
 			Ref<ResourceImportMetadata> imd = memnew( ResourceImportMetadata );
@@ -284,7 +308,7 @@ public:
 	void _notification(int p_what) {
 
 
-		if (p_what==NOTIFICATION_ENTER_SCENE) {
+		if (p_what==NOTIFICATION_ENTER_TREE) {
 
 			option_editor->edit(options);
 		}
@@ -339,16 +363,16 @@ public:
 
 		save_choose->connect("pressed", this,"_browse_target");
 
-		file_select = memnew(FileDialog);
-		file_select->set_access(FileDialog::ACCESS_FILESYSTEM);
+		file_select = memnew(EditorFileDialog);
+		file_select->set_access(EditorFileDialog::ACCESS_FILESYSTEM);
 		add_child(file_select);
-		file_select->set_mode(FileDialog::MODE_OPEN_FILES);
+		file_select->set_mode(EditorFileDialog::MODE_OPEN_FILES);
 		file_select->connect("files_selected", this,"_choose_files");
 		file_select->add_filter("*.wav ; MS Waveform");
 		save_select = memnew(	EditorDirDialog );
 		add_child(save_select);
 
-	//	save_select->set_mode(FileDialog::MODE_OPEN_DIR);
+	//	save_select->set_mode(EditorFileDialog::MODE_OPEN_DIR);
 		save_select->connect("dir_selected", this,"_choose_save_dir");
 
 		get_ok()->connect("pressed", this,"_import");
@@ -554,7 +578,11 @@ Error EditorSampleImportPlugin::import(const String& p_path, const Ref<ResourceI
 		loop_end=len;
 	}
 
+	int compression = from->get_option("compress/mode");
 	bool force_mono = from->get_option("force/mono");
+	if (compression==_EditorSampleImportOptions::COMPRESS_MODE_RAM)
+		force_mono=true;
+
 	if (force_mono && chans==2) {
 
 		Vector<float> new_data;
@@ -575,19 +603,32 @@ Error EditorSampleImportPlugin::import(const String& p_path, const Ref<ResourceI
 
 
 	DVector<uint8_t> dst_data;
-	dst_data.resize( data.size() * (is16?2:1));
-	{
-		DVector<uint8_t>::Write w = dst_data.write();
+	Sample::Format dst_format;
 
-		int ds=data.size();
-		for(int i=0;i<ds;i++) {
+	if ( compression == _EditorSampleImportOptions::COMPRESS_MODE_RAM) {
 
-			if (is16) {
-				int16_t v = CLAMP(data[i]*32767,-32768,32767);
-				encode_uint16(v,&w[i*2]);
-			} else {
-				int8_t v = CLAMP(data[i]*127,-128,127);
-				w[i]=v;
+		dst_format=Sample::FORMAT_IMA_ADPCM;
+
+		_compress_ima_adpcm(data,dst_data);
+		print_line("compressing ima-adpcm, resulting buffersize is "+itos(dst_data.size())+" from "+itos(data.size()));
+
+	} else {
+
+		dst_format=is16?Sample::FORMAT_PCM16:Sample::FORMAT_PCM8;
+		dst_data.resize( data.size() * (is16?2:1));
+		{
+			DVector<uint8_t>::Write w = dst_data.write();
+
+			int ds=data.size();
+			for(int i=0;i<ds;i++) {
+
+				if (is16) {
+					int16_t v = CLAMP(data[i]*32767,-32768,32767);
+					encode_uint16(v,&w[i*2]);
+				} else {
+					int8_t v = CLAMP(data[i]*127,-128,127);
+					w[i]=v;
+				}
 			}
 		}
 	}
@@ -603,7 +644,7 @@ Error EditorSampleImportPlugin::import(const String& p_path, const Ref<ResourceI
 		target = smp;
 	}
 
-	target->create(is16?Sample::FORMAT_PCM16:Sample::FORMAT_PCM8,chans==2?true:false,len);
+	target->create(dst_format,chans==2?true:false,len);
 	target->set_data(dst_data);
 	target->set_mix_rate(rate);
 	target->set_loop_format(loop);
@@ -621,6 +662,124 @@ Error EditorSampleImportPlugin::import(const String& p_path, const Ref<ResourceI
 
 }
 
+void EditorSampleImportPlugin::_compress_ima_adpcm(const Vector<float>& p_data,DVector<uint8_t>& dst_data) {
+
+
+	/*p_sample_data->data = (void*)malloc(len);
+	xm_s8 *dataptr=(xm_s8*)p_sample_data->data;*/
+
+	static const int16_t _ima_adpcm_step_table[89] = {
+		7, 8, 9, 10, 11, 12, 13, 14, 16, 17,
+		19, 21, 23, 25, 28, 31, 34, 37, 41, 45,
+		50, 55, 60, 66, 73, 80, 88, 97, 107, 118,
+		130, 143, 157, 173, 190, 209, 230, 253, 279, 307,
+		337, 371, 408, 449, 494, 544, 598, 658, 724, 796,
+		876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066,
+		2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358,
+		5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899,
+		15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767
+	};
+
+	static const int8_t _ima_adpcm_index_table[16] = {
+		-1, -1, -1, -1, 2, 4, 6, 8,
+		-1, -1, -1, -1, 2, 4, 6, 8
+	};
+
+
+	int datalen = p_data.size();
+	int datamax=datalen;
+	if (datalen&1)
+		datalen++;
+
+	dst_data.resize(datalen/2+4);
+	DVector<uint8_t>::Write w = dst_data.write();
+
+
+	int i,step_idx=0,prev=0;
+	uint8_t *out = w.ptr();
+	//int16_t xm_prev=0;
+	const float *in=p_data.ptr();
+
+
+	/* initial value is zero */
+	*(out++) =0;
+	*(out++) =0;
+	/* Table index initial value */
+	*(out++) =0;
+	/* unused */
+	*(out++) =0;
+
+	for (i=0;i<datalen;i++) {
+		int step,diff,vpdiff,mask;
+		uint8_t nibble;
+		int16_t xm_sample;
+
+		if (i>=datamax)
+			xm_sample=0;
+		else {
+
+
+			xm_sample=CLAMP(in[i]*32767.0,-32768,32767);
+			//if (xm_sample==32767 || xm_sample==-32768)
+			//	printf("clippy!\n",xm_sample);
+		}
+
+	//	xm_sample=xm_sample+xm_prev;
+	//	xm_prev=xm_sample;
+
+		diff = (int)xm_sample - prev ;
+
+		nibble=0 ;
+		step =  _ima_adpcm_step_table[ step_idx ];
+		vpdiff = step >> 3 ;
+		if (diff < 0) {
+			nibble=8;
+			diff=-diff ;
+		}
+		mask = 4 ;
+		while (mask) {
+
+			if (diff >= step) {
+
+				nibble |= mask;
+				diff -= step;
+				vpdiff += step;
+			}
+
+			step >>= 1 ;
+			mask >>= 1 ;
+		};
+
+		if (nibble&8)
+			prev-=vpdiff ;
+		else
+			prev+=vpdiff ;
+
+		if (prev > 32767) {
+			//printf("%i,xms %i, prev %i,diff %i, vpdiff %i, clip up %i\n",i,xm_sample,prev,diff,vpdiff,prev);
+			prev=32767;
+		} else if (prev < -32768) {
+			//printf("%i,xms %i, prev %i,diff %i, vpdiff %i, clip down %i\n",i,xm_sample,prev,diff,vpdiff,prev);
+			prev = -32768 ;
+		}
+
+		step_idx += _ima_adpcm_index_table[nibble];
+		if (step_idx< 0)
+			step_idx= 0 ;
+		else if (step_idx> 88)
+			step_idx= 88 ;
+
+
+		if (i&1) {
+			*out|=nibble<<4;
+			out++;
+		} else {
+			*out=nibble;
+		}
+		/*dataptr[i]=prev>>8;*/
+	}
+
+}
 
 EditorSampleImportPlugin::EditorSampleImportPlugin(EditorNode* p_editor) {
 

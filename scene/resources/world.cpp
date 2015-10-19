@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -225,17 +225,22 @@ struct SpatialIndexer {
 
 void World::_register_camera(Camera* p_camera) {
 
+#ifndef _3D_DISABLED
 	indexer->_add_camera(p_camera);
+#endif
 }
 
 void World::_update_camera(Camera* p_camera){
 
+#ifndef _3D_DISABLED
 	indexer->_update_camera(p_camera);
-
+#endif
 }
 void World::_remove_camera(Camera* p_camera){
 
+#ifndef _3D_DISABLED
 	indexer->_remove_camera(p_camera);
+#endif
 }
 
 
@@ -243,26 +248,31 @@ void World::_remove_camera(Camera* p_camera){
 
 void World::_register_notifier(VisibilityNotifier* p_notifier,const AABB& p_rect){
 
-
+#ifndef _3D_DISABLED
 	indexer->_notifier_add(p_notifier,p_rect);
+#endif
 }
 
 void World::_update_notifier(VisibilityNotifier* p_notifier,const AABB& p_rect){
 
-
+#ifndef _3D_DISABLED
 	indexer->_notifier_update(p_notifier,p_rect);
+#endif
 }
 
 void World::_remove_notifier(VisibilityNotifier* p_notifier){
 
-
+#ifndef _3D_DISABLED
 	indexer->_notifier_remove(p_notifier);
+#endif
 }
 
 
 void World::_update(uint64_t p_frame) {
 
+#ifndef _3D_DISABLED
 	indexer->_update(p_frame);
+#endif
 }
 
 
@@ -297,6 +307,11 @@ Ref<Environment> World::get_environment() const {
 }
 
 
+PhysicsDirectSpaceState *World::get_direct_space_state() {
+
+	return PhysicsServer::get_singleton()->space_get_direct_state(space);
+}
+
 void World::_bind_methods() {
 
 	ObjectTypeDB::bind_method(_MD("get_space"),&World::get_space);
@@ -304,6 +319,7 @@ void World::_bind_methods() {
 	ObjectTypeDB::bind_method(_MD("get_sound_space"),&World::get_sound_space);
 	ObjectTypeDB::bind_method(_MD("set_environment","env:Environment"),&World::set_environment);
 	ObjectTypeDB::bind_method(_MD("get_environment:Environment"),&World::get_environment);
+	ObjectTypeDB::bind_method(_MD("get_direct_space_state:PhysicsDirectSpaceState"),&World::get_direct_space_state);
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT,"environment",PROPERTY_HINT_RESOURCE_TYPE,"Environment"),_SCS("set_environment"),_SCS("get_environment"));
 
 }

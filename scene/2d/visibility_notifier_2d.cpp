@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,6 +32,7 @@
 #include "scene/2d/physics_body_2d.h"
 #include "scene/animation/animation_player.h"
 #include "scene/scene_string_names.h"
+#include "particles_2d.h"
 
 void VisibilityNotifier2D::_enter_viewport(Viewport* p_viewport) {
 
@@ -64,8 +65,13 @@ void VisibilityNotifier2D::_exit_viewport(Viewport* p_viewport){
 void VisibilityNotifier2D::set_rect(const Rect2& p_rect){
 
 	rect=p_rect;
-	if (is_inside_scene())
+	if (is_inside_tree()) {
 		get_world_2d()->_update_notifier(this,get_global_transform().xform(rect));
+		if (get_tree()->is_editor_hint()) {
+			update();
+			item_rect_changed();
+		}
+	}
 
 	_change_notify("rect");
 }
@@ -85,7 +91,7 @@ void VisibilityNotifier2D::_notification(int p_what) {
 
 
 	switch(p_what) {
-		case NOTIFICATION_ENTER_SCENE: {
+		case NOTIFICATION_ENTER_TREE: {
 
 			//get_world_2d()->
 			get_world_2d()->_register_notifier(this,get_global_transform().xform(rect));
@@ -97,12 +103,12 @@ void VisibilityNotifier2D::_notification(int p_what) {
 		} break;
 		case NOTIFICATION_DRAW: {
 
-			if (get_scene()->is_editor_hint()) {
+			if (get_tree()->is_editor_hint()) {
 
 				draw_rect(rect,Color(1,0.5,1,0.2));
 			}
 		} break;
-		case NOTIFICATION_EXIT_SCENE: {
+		case NOTIFICATION_EXIT_TREE: {
 
 			get_world_2d()->_remove_notifier(this);
 		} break;
@@ -149,6 +155,11 @@ void VisibilityEnabler2D::_screen_enter() {
 		_change_node_state(E->key(),true);
 	}
 
+	if (enabler[ENABLER_PARENT_FIXED_PROCESS] && get_parent())
+		get_parent()->set_fixed_process(true);
+	if (enabler[ENABLER_PARENT_PROCESS] && get_parent())
+		get_parent()->set_process(true);
+
 	visible=true;
 }
 
@@ -158,6 +169,11 @@ void VisibilityEnabler2D::_screen_exit(){
 
 		_change_node_state(E->key(),false);
 	}
+
+	if (enabler[ENABLER_PARENT_FIXED_PROCESS] && get_parent())
+		get_parent()->set_fixed_process(false);
+	if (enabler[ENABLER_PARENT_PROCESS] && get_parent())
+		get_parent()->set_process(false);
 
 	visible=false;
 }
@@ -188,9 +204,18 @@ void VisibilityEnabler2D::_find_nodes(Node* p_node) {
 
 	}
 
+	if (enabler[ENABLER_PAUSE_PARTICLES]) {
+
+		Particles2D *ps = p_node->cast_to<Particles2D>();
+		if (ps) {
+			add=true;
+		}
+
+	}
+
 	if (add) {
 
-		p_node->connect(SceneStringNames::get_singleton()->exit_scene,this,"_node_removed",varray(p_node),CONNECT_ONESHOT);
+		p_node->connect(SceneStringNames::get_singleton()->exit_tree,this,"_node_removed",varray(p_node),CONNECT_ONESHOT);
 		nodes[p_node]=meta;
 		_change_node_state(p_node,false);
 	}
@@ -207,9 +232,9 @@ void VisibilityEnabler2D::_find_nodes(Node* p_node) {
 
 void VisibilityEnabler2D::_notification(int p_what){
 
-	if (p_what==NOTIFICATION_ENTER_SCENE) {
+	if (p_what==NOTIFICATION_ENTER_TREE) {
 
-		if (get_scene()->is_editor_hint())
+		if (get_tree()->is_editor_hint())
 			return;
 
 
@@ -220,11 +245,17 @@ void VisibilityEnabler2D::_notification(int p_what){
 
 		_find_nodes(from);
 
+		if (enabler[ENABLER_PARENT_FIXED_PROCESS] && get_parent())
+			get_parent()->set_fixed_process(false);
+		if (enabler[ENABLER_PARENT_PROCESS] && get_parent())
+			get_parent()->set_process(false);
+
+
 	}
 
-	if (p_what==NOTIFICATION_EXIT_SCENE) {
+	if (p_what==NOTIFICATION_EXIT_TREE) {
 
-		if (get_scene()->is_editor_hint())
+		if (get_tree()->is_editor_hint())
 			return;
 
 
@@ -235,7 +266,7 @@ void VisibilityEnabler2D::_notification(int p_what){
 
 			if (!visible)
 				_change_node_state(E->key(),true);
-			E->key()->disconnect(SceneStringNames::get_singleton()->exit_scene,this,"_node_removed");
+			E->key()->disconnect(SceneStringNames::get_singleton()->exit_tree,this,"_node_removed");
 		}
 
 		nodes.clear();
@@ -254,10 +285,10 @@ void VisibilityEnabler2D::_change_node_state(Node* p_node,bool p_enabled) {
 			if (p_enabled) {
 				RigidBody2D::Mode mode = RigidBody2D::Mode(nodes[p_node].operator int());
 				//rb->set_mode(mode);
-				rb->set_active(true);
+				rb->set_sleeping(false);
 			} else {
 				//rb->set_mode(RigidBody2D::MODE_STATIC);
-				rb->set_active(false);
+				rb->set_sleeping(true);
 			}
 		}
 	}
@@ -268,6 +299,15 @@ void VisibilityEnabler2D::_change_node_state(Node* p_node,bool p_enabled) {
 		if (ap) {
 
 			ap->set_active(p_enabled);
+		}
+	}
+
+	{
+		Particles2D *ps=p_node->cast_to<Particles2D>();
+
+		if (ps) {
+
+			ps->set_emitting(p_enabled);
 		}
 	}
 
@@ -292,9 +332,15 @@ void VisibilityEnabler2D::_bind_methods(){
 
 	ADD_PROPERTYI( PropertyInfo(Variant::BOOL,"enabler/pause_animations"),_SCS("set_enabler"),_SCS("is_enabler_enabled"), ENABLER_PAUSE_ANIMATIONS );
 	ADD_PROPERTYI( PropertyInfo(Variant::BOOL,"enabler/freeze_bodies"),_SCS("set_enabler"),_SCS("is_enabler_enabled"), ENABLER_FREEZE_BODIES);
+	ADD_PROPERTYI( PropertyInfo(Variant::BOOL,"enabler/pause_particles"),_SCS("set_enabler"),_SCS("is_enabler_enabled"), ENABLER_PAUSE_PARTICLES);
+	ADD_PROPERTYI( PropertyInfo(Variant::BOOL,"enabler/process_parent"),_SCS("set_enabler"),_SCS("is_enabler_enabled"), ENABLER_PARENT_PROCESS);
+	ADD_PROPERTYI( PropertyInfo(Variant::BOOL,"enabler/fixed_process_parent"),_SCS("set_enabler"),_SCS("is_enabler_enabled"), ENABLER_PARENT_FIXED_PROCESS);
 
 	BIND_CONSTANT( ENABLER_FREEZE_BODIES );
 	BIND_CONSTANT( ENABLER_PAUSE_ANIMATIONS );
+	BIND_CONSTANT( ENABLER_PAUSE_PARTICLES );
+	BIND_CONSTANT( ENABLER_PARENT_PROCESS );
+	BIND_CONSTANT( ENABLER_PARENT_FIXED_PROCESS );
 	BIND_CONSTANT( ENABLER_MAX);
 }
 
@@ -315,8 +361,11 @@ VisibilityEnabler2D::VisibilityEnabler2D() {
 
 	for(int i=0;i<ENABLER_MAX;i++)
 		enabler[i]=true;
+	enabler[ENABLER_PARENT_PROCESS]=false;
+	enabler[ENABLER_PARENT_FIXED_PROCESS]=false;
 
 	visible=false;
 
 }
+
 

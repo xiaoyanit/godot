@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -107,6 +107,7 @@ private:
 	AABB aabb;
 	MorphTargetMode morph_target_mode;
 	Vector<StringName> morph_targets;
+	AABB custom_aabb;
 
 	mutable Ref<TriangleMesh> triangle_mesh;
 
@@ -156,13 +157,19 @@ public:
 
 	void add_surface_from_mesh_data(const Geometry::MeshData& p_mesh_data);
 
+	void set_custom_aabb(const AABB& p_custom);
+	AABB get_custom_aabb() const;
+
 	AABB get_aabb() const;
 	virtual RID get_rid() const;
 
 	Ref<Shape> create_trimesh_shape() const;
 	Ref<Shape> create_convex_shape() const;
 
+	Ref<Mesh> create_outline(float p_margin) const;
+
 	void center_geometry();
+	void regen_normalmaps();
 
 	DVector<Face3> get_faces() const;
 	Ref<TriangleMesh> generate_triangle_mesh() const;

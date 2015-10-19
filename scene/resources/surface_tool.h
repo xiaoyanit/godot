@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,7 +30,7 @@
 #define SURFACE_TOOL_H
 
 #include "scene/resources/mesh.h"
-
+#include "mikktspace.h"
 
 
 class SurfaceTool : public Reference {
@@ -49,12 +49,17 @@ public:
 			Vector<int> bones;
 			Vector<float> weights;
 
+			bool operator==(const Vertex& p_vertex) const;
+
 			Vertex() {  }
 	};
 
 
 private:
-	bool compare(const Vertex& p_a,const Vertex& p_b) const;
+
+	struct VertexHasher {
+		static _FORCE_INLINE_ uint32_t hash(const Vertex &p_vtx);
+	};
 
 	bool begun;
 	bool first;
@@ -64,6 +69,7 @@ private:
 	//arrays
 	List< Vertex > vertex_array;
 	List< int > index_array;
+	Map<int,bool> smooth_groups;
 
 	//memory
 	Color last_color;
@@ -76,6 +82,14 @@ private:
 
 	void _create_list(const Ref<Mesh>& p_existing, int p_surface, List<Vertex> *r_vertex, List<int> *r_index,int &lformat);
 
+
+	//mikktspace callbacks
+	static int mikktGetNumFaces(const SMikkTSpaceContext * pContext);
+	static int mikktGetNumVerticesOfFace(const SMikkTSpaceContext * pContext, const int iFace);
+	static void mikktGetPosition(const SMikkTSpaceContext * pContext, float fvPosOut[], const int iFace, const int iVert);
+	static void mikktGetNormal(const SMikkTSpaceContext * pContext, float fvNormOut[], const int iFace, const int iVert);
+	static void mikktGetTexCoord(const SMikkTSpaceContext * pContext, float fvTexcOut[], const int iFace, const int iVert);
+	static void mikktSetTSpaceBasic(const SMikkTSpaceContext * pContext, const float fvTangent[], const float fSign, const int iFace, const int iVert);
 protected:
 
 	static void _bind_methods();
@@ -92,13 +106,13 @@ public:
 	void add_uv2( const Vector2& p_uv);
 	void add_bones( const Vector<int>& p_indices);
 	void add_weights( const Vector<float>& p_weights);
+	void add_smooth_group(bool p_smooth);
 
 	void add_index( int p_index);
 
 	void index();
 	void deindex();
-	void generate_flat_normals();
-	void generate_smooth_normals();
+	void generate_normals();
 	void generate_tangents();
 
 	void add_to_format(int p_flags) { format|=p_flags; }

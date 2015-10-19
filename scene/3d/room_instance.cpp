@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -99,7 +99,7 @@ RES Room::_get_gizmo_geometry() const {
 	mat->set_line_width(4);
 	mat->set_flag(Material::FLAG_DOUBLE_SIDED,true);
 	mat->set_flag(Material::FLAG_UNSHADED,true);
-	mat->set_hint(Material::HINT_NO_DEPTH_DRAW,true);
+//	mat->set_hint(Material::HINT_NO_DEPTH_DRAW,true);
 
 	surface_tool->begin(Mesh::PRIMITIVE_LINES);
 	surface_tool->set_material(mat);
@@ -147,7 +147,7 @@ void Room::set_room( const Ref<RoomBounds>& p_room ) {
 		set_base(RID());
 	}
 
-	if (!is_inside_scene())
+	if (!is_inside_tree())
 		return;
 
 

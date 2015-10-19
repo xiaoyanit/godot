@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,7 +31,7 @@
 #include <stdarg.h>
 #include "dir_access.h"
 #include "globals.h"
-
+#include "input.h"
 
 OS* OS::singleton=NULL;
 
@@ -43,11 +43,16 @@ OS* OS::get_singleton() {
 uint32_t OS::get_ticks_msec() const
 { return get_ticks_usec()/1000; }
 
+uint64_t OS::get_splash_tick_msec() const {
+	return _msec_splash;
+}
 uint64_t OS::get_unix_time() const {
 
 	return 0;
 };
-
+uint64_t OS::get_system_time_msec() const {
+	return 0;
+}
 void OS::debug_break() {
 
 	// something
@@ -225,7 +230,7 @@ void OS::print_all_resources(String p_to_file) {
 void OS::print_resources_in_use(bool p_short) {
 
 
-	//ResourceCache::dump(NULL,p_short);
+	ResourceCache::dump(NULL,p_short);
 }
 
 void OS::dump_resources_to_file(const char* p_file) {
@@ -278,6 +283,12 @@ String OS::get_locale() const {
 String OS::get_resource_dir() const {
 
 	return Globals::get_singleton()->get_resource_path();
+}
+
+
+String OS::get_system_dir(SystemDir p_dir) const {
+
+	return ".";
 }
 
 String OS::get_data_dir() const {
@@ -352,7 +363,7 @@ Error OS::set_cwd(const String& p_cwd) {
 bool OS::has_touchscreen_ui_hint() const {
 
 	//return false;
-	return GLOBAL_DEF("display/emulate_touchscreen",false);
+	return Input::get_singleton() && Input::get_singleton()->is_emulating_touchscreen();
 }
 
 int OS::get_free_static_memory() const {
@@ -386,7 +397,7 @@ void OS::_ensure_data_dir() {
 	}
 
 	da = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
-	Error err = da->make_dir(dd);
+	Error err = da->make_dir_recursive(dd);
 	if (err!=OK) {
 		ERR_EXPLAIN("Error attempting to create data dir: "+dd);
 	}
@@ -438,7 +449,7 @@ int OS::get_processor_count() const {
 	return 1;
 }
 
-Error OS::native_video_play(String p_path) {
+Error OS::native_video_play(String p_path, float p_volume, String p_audio_track, String p_subtitle_track) {
 
 	return FAILED;
 };
@@ -474,6 +485,21 @@ OS::MouseMode OS::get_mouse_mode() const{
 	return MOUSE_MODE_VISIBLE;
 }
 
+void OS::set_time_scale(float p_scale) {
+
+	_time_scale=p_scale;
+}
+
+OS::LatinKeyboardVariant OS::get_latin_keyboard_variant() const {
+
+	return LATIN_KEYBOARD_QWERTY;
+}
+
+float OS::get_time_scale() const {
+
+	return _time_scale;
+}
+
 
 OS::OS() {
 	last_error=NULL;
@@ -489,6 +515,8 @@ OS::OS() {
 	_fps=1;
 	_target_fps=0;
 	_render_thread_mode=RENDER_THREAD_SAFE;
+	_time_scale=1.0;
+	_pixel_snap=false;
 	Math::seed(1234567);
 }
 

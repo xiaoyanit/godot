@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -372,6 +372,7 @@ void CPMixerImpl::set_voice_panning(int p_voice_index,int p_pan) {
 
 void CPMixerImpl::set_voice_volume(int p_voice_index,int p_vol) {
 
+
 	Voice &v=voices[p_voice_index];
 	ERR_FAIL_COND(v.channel==AudioMixer::INVALID_CHANNEL);
 	float vol = p_vol/512.0;
@@ -488,8 +489,9 @@ void CPMixerImpl::process_usecs(int p_usec,float p_volume,float p_pitch_scale,fl
 
 			p_usec-=callback_timeout;
 			callback_timeout=0;
-			if (callback)
+			if (callback) {
 				callback(userdata);
+			}
 			callback_timeout=callback_interval*(1.0/p_tempo_scale);
 
 		} else {
@@ -704,6 +706,9 @@ float EventStreamPlaybackChibi::get_tempo_scale() const{
 
 void EventStreamPlaybackChibi::set_channel_volume(int p_channel,float p_volume) {
 
+
+	if (p_channel>=64)
+		return;
 	player->set_channel_global_volume(p_channel,p_volume*256);
 }
 
@@ -774,8 +779,10 @@ EventStreamChibi::EventStreamChibi() {
 
 
 
-RES ResourceFormatLoaderChibi::load(const String &p_path,const String& p_original_path) {
+RES ResourceFormatLoaderChibi::load(const String &p_path, const String& p_original_path, Error *r_error) {
 
+	if (r_error)
+		*r_error=ERR_FILE_CANT_OPEN;
 	String el = p_path.extension().to_lower();
 
 	CPFileAccessWrapperImpl f;
@@ -784,28 +791,42 @@ RES ResourceFormatLoaderChibi::load(const String &p_path,const String& p_origina
 
 		Ref<EventStreamChibi> esc( memnew( EventStreamChibi ) );
 		CPLoader_IT loader(&f);
-		loader.load_song(p_path.utf8().get_data(),&esc->song,false);
+		CPLoader::Error err = loader.load_song(p_path.utf8().get_data(),&esc->song,false);
+		ERR_FAIL_COND_V(err!=CPLoader::FILE_OK,RES());
+		if (r_error)
+			*r_error=OK;
+
 		return esc;
 
 	} else if (el=="xm") {
 
 		Ref<EventStreamChibi> esc( memnew( EventStreamChibi ) );
 		CPLoader_XM loader(&f);
-		loader.load_song(p_path.utf8().get_data(),&esc->song,false);
+		CPLoader::Error err=loader.load_song(p_path.utf8().get_data(),&esc->song,false);
+		ERR_FAIL_COND_V(err!=CPLoader::FILE_OK,RES());
+		if (r_error)
+			*r_error=OK;
 		return esc;
 
 	} else if (el=="s3m") {
 
 		Ref<EventStreamChibi> esc( memnew( EventStreamChibi ) );
 		CPLoader_S3M loader(&f);
-		loader.load_song(p_path.utf8().get_data(),&esc->song,false);
+		CPLoader::Error err=loader.load_song(p_path.utf8().get_data(),&esc->song,false);
+		ERR_FAIL_COND_V(err!=CPLoader::FILE_OK,RES());
+		if (r_error)
+			*r_error=OK;
+
 		return esc;
 
 	} else if (el=="mod") {
 
 		Ref<EventStreamChibi> esc( memnew( EventStreamChibi ) );
 		CPLoader_MOD loader(&f);
-		loader.load_song(p_path.utf8().get_data(),&esc->song,false);
+		CPLoader::Error err=loader.load_song(p_path.utf8().get_data(),&esc->song,false);
+		ERR_FAIL_COND_V(err!=CPLoader::FILE_OK,RES());
+		if (r_error)
+			*r_error=OK;
 		return esc;
 	}
 

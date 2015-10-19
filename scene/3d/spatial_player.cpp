@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -98,7 +98,7 @@ RES SpatialPlayer::_get_gizmo_geometry() const {
 	mat->set_parameter( FixedMaterial::PARAM_EMISSION,Color(0.5,0.7,0.8) );
 	mat->set_blend_mode( Material::BLEND_MODE_ADD );
 	mat->set_flag(Material::FLAG_DOUBLE_SIDED,true);
-	mat->set_hint(Material::HINT_NO_DEPTH_DRAW,true);
+//	mat->set_hint(Material::HINT_NO_DEPTH_DRAW,true);
 
 
 	surface_tool->begin(Mesh::PRIMITIVE_TRIANGLES);

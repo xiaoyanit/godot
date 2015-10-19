@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -29,6 +29,7 @@
 #include "particles_editor_plugin.h"
 #include "io/resource_loader.h"
 #include "servers/visual/particle_system_sw.h"
+#include "tools/editor/plugins/spatial_editor_plugin.h"
 
 
 void ParticlesEditor::_node_removed(Node *p_node) {
@@ -57,7 +58,7 @@ void ParticlesEditor::_node_selected(const NodePath& p_path){
 	if (!vi) {
 
 		err_dialog->set_text("Node does not contain geometry.");
-		err_dialog->popup_centered(Size2(300,100));
+		err_dialog->popup_centered_minsize();
 		return;
 	}
 
@@ -66,7 +67,7 @@ void ParticlesEditor::_node_selected(const NodePath& p_path){
 	if (geometry.size()==0) {
 
 		err_dialog->set_text("Node does not contain geometry (faces).");
-		err_dialog->popup_centered(Size2(300,100));
+		err_dialog->popup_centered_minsize();
 		return;
 
 	}
@@ -109,7 +110,8 @@ void ParticlesEditor::_populate() {
 
 void ParticlesEditor::_notification(int p_notification) {
 
-	if (p_notification==NOTIFICATION_ENTER_SCENE) {
+	if (p_notification==NOTIFICATION_ENTER_TREE) {
+		options->set_icon(options->get_popup()->get_icon("Particles","EditorIcons"));
 
 	}
 }
@@ -218,7 +220,7 @@ void ParticlesEditor::_generate_emission_points() {
 		if (!triangle_area_map.size() || area_accum==0) {
 
 			err_dialog->set_text("Faces contain no area!");
-			err_dialog->popup_centered(Size2(300,100));
+			err_dialog->popup_centered_minsize();
 			return;
 		}
 
@@ -248,7 +250,7 @@ void ParticlesEditor::_generate_emission_points() {
 		if (gcount==0) {
 
 			err_dialog->set_text("No Faces!");
-			err_dialog->popup_centered(Size2(300,100));
+			err_dialog->popup_centered_minsize();
 			return;
 		}
 
@@ -340,9 +342,11 @@ void ParticlesEditor::_bind_methods() {
 
 ParticlesEditor::ParticlesEditor() {
 
+	particles_editor_hb = memnew ( HBoxContainer );
+	SpatialEditor::get_singleton()->add_control_to_menu_panel(particles_editor_hb);
 	options = memnew( MenuButton );
-	add_child(options);
-	options->set_area_as_parent_rect();
+	particles_editor_hb->add_child(options);
+	particles_editor_hb->hide();
 
 	options->set_text("Particles");
 	options->get_popup()->add_item("Generate AABB",MENU_OPTION_GENERATE_AABB);
@@ -391,7 +395,7 @@ ParticlesEditor::ParticlesEditor() {
 	add_child(err_dialog);
 
 
-	emission_file_dialog = memnew( FileDialog );
+	emission_file_dialog = memnew( EditorFileDialog );
 	add_child(emission_file_dialog);
 	emission_file_dialog->connect("file_selected",this,"_resource_seleted");
 	emission_tree_dialog = memnew( SceneTreeDialog );
@@ -407,7 +411,7 @@ ParticlesEditor::ParticlesEditor() {
 		emission_file_dialog->add_filter("*."+extensions[i]+" ; "+extensions[i].to_upper());
 	}
 
-	emission_file_dialog->set_mode(FileDialog::MODE_OPEN_FILE);
+	emission_file_dialog->set_mode(EditorFileDialog::MODE_OPEN_FILE);
 
 	//options->set_anchor(MARGIN_LEFT,Control::ANCHOR_END);
 	//options->set_anchor(MARGIN_RIGHT,Control::ANCHOR_END);
@@ -429,8 +433,9 @@ void ParticlesEditorPlugin::make_visible(bool p_visible) {
 
 	if (p_visible) {
 		particles_editor->show();
+		particles_editor->particles_editor_hb->show();
 	} else {
-
+		particles_editor->particles_editor_hb->hide();
 		particles_editor->hide();
 		particles_editor->edit(NULL);
 	}
@@ -442,14 +447,6 @@ ParticlesEditorPlugin::ParticlesEditorPlugin(EditorNode *p_node) {
 	editor=p_node;
 	particles_editor = memnew( ParticlesEditor );
 	editor->get_viewport()->add_child(particles_editor);
-
-//	particles_editor->set_anchor(MARGIN_LEFT,Control::ANCHOR_END);
-//	particles_editor->set_anchor(MARGIN_RIGHT,Control::ANCHOR_END);
-	particles_editor->set_margin(MARGIN_LEFT,253);
-	particles_editor->set_margin(MARGIN_RIGHT,280);
-	particles_editor->set_margin(MARGIN_TOP,0);
-	particles_editor->set_margin(MARGIN_BOTTOM,10);
-
 
 	particles_editor->hide();
 }

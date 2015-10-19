@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -94,6 +94,7 @@ public class GodotIO {
 
 		//System.out.printf("file_open: Attempt to Open %s\n",path);
 
+		//Log.v("MyApp", "TRYING TO OPEN FILE: " + path);
 		if (write)
 			return -1;
 
@@ -105,7 +106,7 @@ public class GodotIO {
 
 		} catch (Exception e) {
 
-			//System.out.printf("Exception on file_open: %s\n",e);
+			//System.out.printf("Exception on file_open: %s\n",path);
 			return -1;
 		}
 
@@ -113,7 +114,7 @@ public class GodotIO {
 			ad.len=ad.is.available();
 		} catch (Exception e) {
 
-			System.out.printf("Exception availabling on file_open: %s\n",e);
+			System.out.printf("Exception availabling on file_open: %s\n",path);
 			return -1;
 		}
 
@@ -271,6 +272,7 @@ public class GodotIO {
 
 		public String[] files;
 		public int current;
+		public String path;
 	}
 
 	public int last_dir_id=1;
@@ -281,6 +283,7 @@ public class GodotIO {
 
 		AssetDir ad = new AssetDir();
 		ad.current=0;
+		ad.path=path;
 
 		try {
 			ad.files = am.list(path);
@@ -290,11 +293,38 @@ public class GodotIO {
 			return -1;
 		}
 
+		//System.out.printf("Opened dir: %s\n",path);
 		++last_dir_id;
 		dirs.put(last_dir_id,ad);
 
 		return last_dir_id;
 
+	}
+
+	public boolean dir_is_dir(int id) {
+		if (!dirs.containsKey(id)) {
+			System.out.printf("dir_next: invalid dir id: %d\n",id);
+			return false;
+		}
+		AssetDir ad = dirs.get(id);
+		//System.out.printf("go next: %d,%d\n",ad.current,ad.files.length);
+		int idx = ad.current;
+		if (idx>0)
+			idx--;
+
+		if (idx>=ad.files.length)
+			return false;
+		String fname = ad.files[idx];
+
+		try {
+			if (ad.path.equals(""))
+				am.open(fname);
+			else
+				am.open(ad.path+"/"+fname);
+			return false;
+		} catch (Exception e) {
+			return true;
+		}
 	}
 
 	public String dir_next(int id) {
@@ -305,8 +335,12 @@ public class GodotIO {
 		}
 
 		AssetDir ad = dirs.get(id);
-		if (ad.current>=ad.files.length)
+		//System.out.printf("go next: %d,%d\n",ad.current,ad.files.length);
+
+		if (ad.current>=ad.files.length) {
+			ad.current++;
 			return "";
+		}
 		String r = ad.files[ad.current];
 		ad.current++;
 		return r;
@@ -438,8 +472,26 @@ public class GodotIO {
 
 		try {
 			Log.v("MyApp", "TRYING TO OPEN URI: " + p_uri);
-			Intent myIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(p_uri));
-			activity.startActivity(myIntent);
+			String path = p_uri;
+			String type="";
+			if (path.startsWith("/")) {
+				//absolute path to filesystem, prepend file://
+				path="file://"+path;
+				if (p_uri.endsWith(".png") || p_uri.endsWith(".jpg") || p_uri.endsWith(".gif") || p_uri.endsWith(".webp")) {
+
+					type="image/*";
+				}
+			}
+
+			Intent intent = new Intent();
+			intent.setAction(Intent.ACTION_VIEW);
+			if (!type.equals("")) {
+				intent.setDataAndType(Uri.parse(path), type);
+			} else {
+				intent.setData(Uri.parse(path));
+			}
+
+			activity.startActivity(intent);
 			return 0;
 		} catch (ActivityNotFoundException e) {
 
@@ -555,6 +607,58 @@ public class GodotIO {
 			mediaPlayer.release();
 			mediaPlayer = null;
 		}
+	}
+
+
+	public static final int SYSTEM_DIR_DESKTOP=0;
+	public static final int SYSTEM_DIR_DCIM=1;
+	public static final int SYSTEM_DIR_DOCUMENTS=2;
+	public static final int SYSTEM_DIR_DOWNLOADS=3;
+	public static final int SYSTEM_DIR_MOVIES=4;
+	public static final int SYSTEM_DIR_MUSIC=5;
+	public static final int SYSTEM_DIR_PICTURES=6;
+	public static final int SYSTEM_DIR_RINGTONES=7;
+
+
+	public String getSystemDir(int idx) {
+
+		String what="";
+		switch(idx) {
+			case SYSTEM_DIR_DESKTOP: {
+				//what=Environment.DIRECTORY_DOCUMENTS;
+				what=Environment.DIRECTORY_DOWNLOADS;
+			} break;
+			case SYSTEM_DIR_DCIM: {
+				what=Environment.DIRECTORY_DCIM;
+
+			} break;
+			case SYSTEM_DIR_DOCUMENTS: {
+				what=Environment.DIRECTORY_DOWNLOADS;
+				//what=Environment.DIRECTORY_DOCUMENTS;
+			} break;
+			case SYSTEM_DIR_DOWNLOADS: {
+				what=Environment.DIRECTORY_DOWNLOADS;
+
+			} break;
+			case SYSTEM_DIR_MOVIES: {
+				what=Environment.DIRECTORY_MOVIES;
+
+			} break;
+			case SYSTEM_DIR_MUSIC: {
+				what=Environment.DIRECTORY_MUSIC;
+			} break;
+			case SYSTEM_DIR_PICTURES: {
+				what=Environment.DIRECTORY_PICTURES;
+			} break;
+			case SYSTEM_DIR_RINGTONES: {
+				what=Environment.DIRECTORY_RINGTONES;
+
+			} break;
+		}
+
+		if (what.equals(""))
+			return "";
+		return Environment.getExternalStoragePublicDirectory(what).getAbsolutePath();
 	}
 
 	protected static final String PREFS_FILE = "device_id.xml";

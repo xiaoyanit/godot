@@ -57,11 +57,11 @@ public:
 	virtual int get_device_count() const { return 0; };
 	virtual String get_device_name(int p_device) const  { return String(); }
 	virtual String get_device_info(int p_device) const { return String(); }
-	virtual Error run(int p_device);
+	virtual Error run(int p_device,int p_flags=0);
 
 	virtual bool requieres_password(bool p_debug) const { return false; }
 	virtual String get_binary_extension() const { return "zip"; }
-	virtual Error export_project(const String& p_path,bool p_debug,const String& p_password="");
+	virtual Error export_project(const String& p_path,bool p_debug,int p_flags=0);
 
 	virtual bool can_export(String *r_error=NULL) const;
 
@@ -138,8 +138,8 @@ bool EditorExportPlatformOSX::_get(const StringName& p_name,Variant &r_ret) cons
 }
 void EditorExportPlatformOSX::_get_property_list( List<PropertyInfo> *p_list) const{
 
-	p_list->push_back( PropertyInfo( Variant::STRING, "custom_package/debug", PROPERTY_HINT_FILE,"zip"));
-	p_list->push_back( PropertyInfo( Variant::STRING, "custom_package/release", PROPERTY_HINT_FILE,"zip"));
+	p_list->push_back( PropertyInfo( Variant::STRING, "custom_package/debug", PROPERTY_HINT_GLOBAL_FILE,"zip"));
+	p_list->push_back( PropertyInfo( Variant::STRING, "custom_package/release", PROPERTY_HINT_GLOBAL_FILE,"zip"));
 
 	p_list->push_back( PropertyInfo( Variant::STRING, "application/name") );
 	p_list->push_back( PropertyInfo( Variant::STRING, "application/info") );
@@ -245,7 +245,7 @@ void EditorExportPlatformOSX::_fix_plist(Vector<uint8_t>& plist,const String& p_
 	}
 }
 
-Error EditorExportPlatformOSX::export_project(const String& p_path,bool p_debug,const String& p_password) {
+Error EditorExportPlatformOSX::export_project(const String& p_path, bool p_debug, int p_flags) {
 
 	String src_pkg;
 
@@ -437,7 +437,7 @@ Error EditorExportPlatformOSX::export_project(const String& p_path,bool p_debug,
 }
 
 
-Error EditorExportPlatformOSX::run(int p_device) {
+Error EditorExportPlatformOSX::run(int p_device, int p_flags) {
 
 	return OK;
 }

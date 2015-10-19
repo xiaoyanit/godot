@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -67,6 +67,9 @@ Array ButtonGroup::_get_button_list() const {
 
 	List<BaseButton*> b;
 	get_button_list(&b);
+
+	b.sort_custom<Node::Comparator>();
+
 	Array arr;
 	arr.resize(b.size());
 
@@ -114,7 +117,7 @@ BaseButton *ButtonGroup::get_focused_button() const{
 int ButtonGroup::get_pressed_button_index() const {
 	//in tree order, this is bizarre
 
-	ERR_FAIL_COND_V(!is_inside_scene(),0);
+	ERR_FAIL_COND_V(!is_inside_tree(),0);
 
 	BaseButton *pressed = get_pressed_button();
 	if (!pressed)

@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -43,6 +43,8 @@ class RayCast2D : public Node2D {
 	Vector2 collision_point;
 	Vector2 collision_normal;
 	Set<RID> exclude;
+	uint32_t layer_mask;
+	uint32_t type_mask;
 
 
 	Vector2 cast_to;
@@ -57,6 +59,12 @@ public:
 
 	void set_cast_to(const Vector2& p_point);
 	Vector2 get_cast_to() const;
+
+	void set_layer_mask(uint32_t p_mask);
+	uint32_t get_layer_mask() const;
+
+	void set_type_mask(uint32_t p_mask);
+	uint32_t get_type_mask() const;
 
 	bool is_colliding() const;
 	Object *get_collider() const;

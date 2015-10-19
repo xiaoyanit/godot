@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -56,7 +56,9 @@ public:
 	enum Mode {
 		MODE_TEXTURE_2D,
 		MODE_TEXTURE_3D,
-		MODE_ATLAS
+		MODE_ATLAS,
+		MODE_LARGE,
+		MODE_MAX
 	};
 
 
@@ -65,10 +67,10 @@ private:
 	Mode mode;
 	EditorNode *editor;
 	EditorTextureImportDialog *dialog;
-	static EditorTextureImportPlugin *singleton[3];
+	static EditorTextureImportPlugin *singleton[MODE_MAX];
 	//used by other importers such as mesh
 
-
+	Error _process_texture_data(Ref<ImageTexture> &texture, int format, float quality, int flags,EditorExportPlatform::ImageCompression p_compr,int tex_flags,float shrink);
 	void compress_image(EditorExportPlatform::ImageCompression p_mode,Image& image,bool p_smaller);
 public:
 
@@ -91,9 +93,14 @@ public:
 		IMAGE_FLAG_COMPRESS_EXTRA=8, // used for pvrtc2
 		IMAGE_FLAG_NO_MIPMAPS=16, //normal for 2D games
 		IMAGE_FLAG_REPEAT=32, //usually disabled in 2D
-		IMAGE_FLAG_FILTER=64 //almost always enabled
+		IMAGE_FLAG_FILTER=64, //almost always enabled
+		IMAGE_FLAG_PREMULT_ALPHA=128,//almost always enabled
+		IMAGE_FLAG_CONVERT_TO_LINEAR=256, //convert image to linear
+		IMAGE_FLAG_CONVERT_NORMAL_TO_XY=512, //convert image to linear
+		IMAGE_FLAG_USE_ANISOTROPY=1024, //convert image to linear
 	};
 
+	Mode get_mode() const { return mode; }
 	virtual String get_name() const;
 	virtual String get_visible_name() const;
 	virtual void import_dialog(const String& p_from="");

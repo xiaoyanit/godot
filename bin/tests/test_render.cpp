@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,6 +33,8 @@
 #include "print_string.h"
 #include "os/os.h"
 #include "quick_hull.h"
+#include "os/keyboard.h"
+
 #define OBJECT_COUNT 50
 
 namespace TestRender {
@@ -59,10 +61,14 @@ class TestMainLoop : public MainLoop {
 	
 	float ofs;
 	bool quit;
+protected:
+
+
 public:
 	virtual void input_event(const InputEvent& p_event) {
 	
-		
+		if (p_event.type==InputEvent::KEY && p_event.key.pressed)
+			quit=true;
 	}
 
 	virtual void init() {
@@ -185,7 +191,7 @@ public:
 
 		//*
 		lightaux = vs->light_create( VisualServer::LIGHT_DIRECTIONAL );
-		vs->light_set_color( lightaux, VisualServer::LIGHT_COLOR_AMBIENT, Color(0.0,0.0,0.0) );
+		//vs->light_set_color( lightaux, VisualServer::LIGHT_COLOR_AMBIENT, Color(0.0,0.0,0.0) );
 		vs->light_set_color( lightaux, VisualServer::LIGHT_COLOR_DIFFUSE, Color(1.0,1.0,1.0) );
 		//vs->light_set_shadow( lightaux, true );
 		light = vs->instance_create2( lightaux, scenario );
@@ -198,7 +204,7 @@ public:
 
 		//*
 		lightaux = vs->light_create( VisualServer::LIGHT_OMNI );
-		vs->light_set_color( lightaux, VisualServer::LIGHT_COLOR_AMBIENT, Color(0.0,0.0,1.0) );
+//		vs->light_set_color( lightaux, VisualServer::LIGHT_COLOR_AMBIENT, Color(0.0,0.0,1.0) );
 		vs->light_set_color( lightaux, VisualServer::LIGHT_COLOR_DIFFUSE, Color(1.0,1.0,0.0) );
 		vs->light_set_param( lightaux, VisualServer::LIGHT_PARAM_RADIUS, 4 );
 		vs->light_set_param( lightaux, VisualServer::LIGHT_PARAM_ENERGY, 8 );

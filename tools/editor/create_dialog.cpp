@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -128,7 +128,7 @@ void CreateDialog::_update_search() {
 	_parse_fs(EditorFileSystem::get_singleton()->get_filesystem());
 */
 
-	List<String> type_list;
+	List<StringName> type_list;
 	ObjectTypeDB::get_type_list(&type_list);
 
 	HashMap<String,TreeItem*> types;
@@ -137,7 +137,7 @@ void CreateDialog::_update_search() {
 
 	root->set_text(0,base_type);
 
-	List<String>::Element *I=type_list.front();
+	List<StringName>::Element *I=type_list.front();
 	TreeItem *to_select=NULL;
 
 	for(;I;I=I->next()) {
@@ -225,10 +225,15 @@ void CreateDialog::_confirmed() {
 
 void CreateDialog::_notification(int p_what) {
 
-	if (p_what==NOTIFICATION_ENTER_SCENE) {
+	if (p_what==NOTIFICATION_ENTER_TREE) {
 
 		connect("confirmed",this,"_confirmed");
 		_update_search();
+	}
+	if (p_what==NOTIFICATION_EXIT_TREE) {
+
+		disconnect("confirmed",this,"_confirmed");
+
 	}
 
 	if (p_what==NOTIFICATION_VISIBILITY_CHANGED) {
@@ -289,7 +294,7 @@ CreateDialog::CreateDialog() {
 	search_box->connect("input_event",this,"_sbox_input");
 	search_options = memnew( Tree );
 	vbc->add_margin_child("Matches:",search_options,true);
-	get_ok()->set_text("Open");
+	get_ok()->set_text("Create");
 	get_ok()->set_disabled(true);
 	register_text_enter(search_box);
 	set_hide_on_ok(false);

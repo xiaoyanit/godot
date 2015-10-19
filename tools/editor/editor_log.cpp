@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -76,7 +76,7 @@ void EditorLog::_error_handler(void *p_self, const char*p_func, const char*p_fil
 
 void EditorLog::_notification(int p_what) {
 
-	if (p_what==NOTIFICATION_ENTER_SCENE) {
+	if (p_what==NOTIFICATION_ENTER_TREE) {
 
 		log->add_color_override("default_color",get_color("font_color","Tree"));
 		tb->set_normal_texture( get_icon("Collapse","EditorIcons"));
@@ -101,6 +101,17 @@ void EditorLog::_close_request() {
 
 	_flip_request();
 
+}
+
+
+void EditorLog::_clear_request() {
+
+	log->clear();
+
+}
+
+void EditorLog::clear() {
+	_clear_request();
 }
 
 
@@ -167,9 +178,12 @@ void EditorLog::_bind_methods() {
 
 	ObjectTypeDB::bind_method(_MD("_close_request"),&EditorLog::_close_request );
 	ObjectTypeDB::bind_method(_MD("_flip_request"),&EditorLog::_flip_request );
+	ObjectTypeDB::bind_method(_MD("_clear_request"),&EditorLog::_clear_request );
+
 	//ObjectTypeDB::bind_method(_MD("_dragged"),&EditorLog::_dragged );
 	ADD_SIGNAL( MethodInfo("close_request"));
 	ADD_SIGNAL( MethodInfo("show_request"));
+	ADD_SIGNAL( MethodInfo("clear_request"));
 }
 
 EditorLog::EditorLog() {
@@ -198,14 +212,19 @@ EditorLog::EditorLog() {
 	//pd->connect("dragged",this,"_dragged");
 	//pd->set_default_cursor_shape(Control::CURSOR_MOVE);
 
+	clearbutton = memnew( Button );
+	hb->add_child(clearbutton);
+	clearbutton->set_text("Clear");
+	clearbutton->connect("pressed", this,"_clear_request");
+
 	tb = memnew( TextureButton );
 	hb->add_child(tb);
 	tb->connect("pressed",this,"_close_request");
 
 
-	ec = memnew( EmptyControl);
+	ec = memnew( Control);
 	vb->add_child(ec);
-	ec->set_minsize(Size2(0,100));
+	ec->set_custom_minimum_size(Size2(0,100));
 	ec->set_v_size_flags(SIZE_EXPAND_FILL);
 
 
@@ -216,8 +235,10 @@ EditorLog::EditorLog() {
 
 	log = memnew( RichTextLabel );
 	log->set_scroll_follow(true);
+	log->set_selection_enabled(true);
+	log->set_focus_mode(FOCUS_CLICK);
 	pc->add_child(log);
-	add_message(VERSION_FULL_NAME" (c) 2008-2014 Juan Linietsky, Ariel Manzur.");
+	add_message(VERSION_FULL_NAME" (c) 2008-2015 Juan Linietsky, Ariel Manzur.");
 	//log->add_text("Initialization Complete.\n"); //because it looks cool.
 	add_style_override("panel",get_stylebox("panelf","Panel"));
 
@@ -239,8 +260,8 @@ void EditorLog::deinit() {
 
 }
 
+
 EditorLog::~EditorLog() {
 
 
 }
-

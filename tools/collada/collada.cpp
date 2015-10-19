@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -322,7 +322,7 @@ void Collada::_parse_image(XMLParser& parser) {
 		String path = parser.get_attribute_value("source").strip_edges();
 		if (path.find("://")==-1 && path.is_rel_path()) {
 			// path is relative to file being loaded, so convert to a resource path
-			image.path=Globals::get_singleton()->localize_path(state.local_path.get_base_dir()+"/"+path);
+			image.path=Globals::get_singleton()->localize_path(state.local_path.get_base_dir()+"/"+path.percent_decode());
 
 		}
 	} else {
@@ -338,7 +338,7 @@ void Collada::_parse_image(XMLParser& parser) {
 				if (name=="init_from") {
 
 					parser.read();
-					String path = parser.get_node_data().strip_edges();
+					String path = parser.get_node_data().strip_edges().percent_decode();
 
 					if (path.find("://")==-1 && path.is_rel_path()) {
 						// path is relative to file being loaded, so convert to a resource path
@@ -378,6 +378,8 @@ void Collada::_parse_material(XMLParser& parser) {
 	Material material;
 
 	String id=parser.get_attribute_value("id");
+	if (parser.has_attribute("name"))
+		material.name=parser.get_attribute_value("name");
 
 	if (state.version<State::Version(1,4,0)) {
 		/* <1.4 */
@@ -441,7 +443,10 @@ Vector<String> Collada::_read_string_array(XMLParser& parser) {
 		if (parser.get_node_type() == XMLParser::NODE_TEXT) {
 			// parse String data
 			String str = parser.get_node_data();
-			array=str.split(" ",false);
+			array=str.split_spaces();
+			//for(int i=0;i<array.size();i++) {
+			//	print_line(itos(i)+": "+array[i]);
+			//}
 		}
 		else
 		if (parser.get_node_type() == XMLParser::NODE_ELEMENT_END)
@@ -775,7 +780,10 @@ void Collada::_parse_effect(XMLParser& parser) {
 	String id=parser.get_attribute_value("id");
 
 	Effect effect;
+	if (parser.has_attribute("name"))
+		effect.name=parser.get_attribute_value("name");
 	_parse_effect_material(parser,effect,id);
+
 
 
 	state.effect_map[id]=effect;
@@ -809,7 +817,7 @@ void Collada::_parse_camera(XMLParser& parser) {
 			if (name=="perspective") {
 
 				camera.mode=CameraData::MODE_PERSPECTIVE;
-			} else if (name=="orthogonal") {
+			} else if (name=="orthographic") {
 
 				camera.mode=CameraData::MODE_ORTHOGONAL;
 			} else if (name=="xfov") {
@@ -971,7 +979,7 @@ void Collada::_parse_curve_geometry(XMLParser& parser,String p_id,String p_name)
 				current_source=id;
 				COLLADA_PRINT("source data: "+id);
 
-			} else if (section=="float_array" || section=="array" || section=="float_array") {
+			} else if (section=="float_array" || section=="array") {
 				// create a new array and read it.
 				if (curvedata.sources.has(current_source)) {
 
@@ -1383,8 +1391,11 @@ void Collada::_parse_morph_controller(XMLParser& parser, String p_id) {
 	state.morph_controller_data_map[p_id]=MorphControllerData();
 	MorphControllerData &morphdata = state.morph_controller_data_map[p_id];
 
+	print_line("morph source: "+parser.get_attribute_value("source")+" id: "+p_id);
 	morphdata.mesh=_uri_to_id(parser.get_attribute_value("source"));
+	print_line("morph source2: "+morphdata.mesh);
 	morphdata.mode=parser.get_attribute_value("method");
+	printf("JJmorph: %p\n",&morphdata);
 	String current_source;
 
 	while(parser.read()==OK) {
@@ -1674,6 +1685,10 @@ Collada::Node* Collada::_parse_visual_scene_node(XMLParser& parser) {
 //			state.bone_map[joint->sid]=joint;
 		} else if (state.idref_joints.has(name))
 			joint->sid=name; //kind of a cheat but..
+
+		if (joint->sid!="") {
+			state.sid_to_node_map[joint->sid]=id;
+		}
 
 		node=joint;
 
@@ -2039,8 +2054,8 @@ void Collada::_parse_animation(XMLParser& parser) {
 			}
 
 			if (target.find("/")!=-1) { //transform component
-				track.target=target.get_slice("/",0);
-				track.param=target.get_slice("/",1);
+				track.target=target.get_slicec('/',0);
+				track.param=target.get_slicec('/',1);
 				if (track.param.find(".")!=-1)
 					track.component=track.param.get_slice(".",1).to_upper();
 				track.param=track.param.get_slice(".",0);
@@ -2053,6 +2068,8 @@ void Collada::_parse_animation(XMLParser& parser) {
 			} else {
 				track.target=target;
 			}
+
+			print_line("TARGET: "+track.target);
 
 			state.animation_tracks.push_back(track);
 
@@ -2089,6 +2106,8 @@ void Collada::_parse_animation_clip(XMLParser& parser) {
 
 	if (parser.has_attribute("name"))
 		clip.name=parser.get_attribute_value("name");
+	else if (parser.has_attribute("id"))
+		clip.name=parser.get_attribute_value("id");
 	if (parser.has_attribute("start"))
 		clip.begin=parser.get_attribute_value("start").to_double();
 	if (parser.has_attribute("end"))
@@ -2132,6 +2151,7 @@ void Collada::_parse_scene(XMLParser& parser) {
 			if (name=="instance_visual_scene") {
 
 				state.root_visual_scene=_uri_to_id(parser.get_attribute_value("url"));
+				print_line("***ROOT VISUAL SCENE: "+state.root_visual_scene);
 			} if (name=="instance_physics_scene") {
 
 				state.root_physics_scene=_uri_to_id(parser.get_attribute_value("url"));
@@ -2230,27 +2250,35 @@ void Collada::_joint_set_owner(Collada::Node *p_node, NodeSkeleton *p_owner) {
 	}
 }
 
-void Collada::_create_skeletons(Collada::Node **p_node) {
+void Collada::_create_skeletons(Collada::Node **p_node,NodeSkeleton *p_skeleton) {
 
 
 	Node *node = *p_node;
 
 	if (node->type==Node::TYPE_JOINT) {
 
-		// ohohohoohoo it's a joint node, time to work!
+		if (!p_skeleton) {
 
-		NodeSkeleton *sk = memnew( NodeSkeleton );
-		*p_node=sk;
-		sk->children.push_back(node);
-		sk->parent=node->parent;
-		node->parent=sk;
-		_joint_set_owner(node,sk);
-	} else {
-
-		for(int i=0;i<node->children.size();i++) {
-			_create_skeletons(&node->children[i]);
+			// ohohohoohoo it's a joint node, time to work!
+			NodeSkeleton *sk = memnew( NodeSkeleton );
+			*p_node=sk;
+			sk->children.push_back(node);
+			sk->parent=node->parent;
+			node->parent=sk;
+			p_skeleton=sk;
 		}
+
+		NodeJoint *nj = static_cast<NodeJoint*>(node);
+		nj->owner=p_skeleton;
+	} else {
+		p_skeleton=NULL;
 	}
+
+
+	for(int i=0;i<node->children.size();i++) {
+		_create_skeletons(&node->children[i],p_skeleton);
+	}
+
 }
 
 bool Collada::_remove_node(Node *p_parent,Node *p_node) {
@@ -2303,6 +2331,9 @@ void Collada::_merge_skeletons(VisualScene *p_vscene,Node *p_node) {
 
 
 				NodeJoint *nj = SAFE_CAST<NodeJoint*>(state.scene_map[nodeid]);
+				if (!nj->owner) {
+					print_line("no owner for: "+String(nodeid));
+				}
 				ERR_CONTINUE( !nj->owner ); //weird, node should have a skeleton owner
 
 				skeletons.insert(nj->owner);
@@ -2338,6 +2369,79 @@ void Collada::_merge_skeletons(VisualScene *p_vscene,Node *p_node) {
 	for(int i=0;i<p_node->children.size();i++) {
 		_merge_skeletons(p_vscene,p_node->children[i]);
 	}
+
+}
+
+
+void Collada::_merge_skeletons2(VisualScene *p_vscene) {
+
+	for (Map<String,SkinControllerData>::Element *E=state.skin_controller_data_map.front();E;E=E->next()) {
+
+		SkinControllerData &cd=E->get();
+
+		NodeSkeleton *skeleton=NULL;
+
+		for (Map<String,Transform>::Element *F=cd.bone_rest_map.front();F;F=F->next()) {
+
+			String name;
+
+			if (!state.sid_to_node_map.has(F->key())) {
+				continue;
+			}
+
+			name = state.sid_to_node_map[F->key()];
+
+			if (!state.scene_map.has(name)) {
+				print_line("no foundie node for: "+name);
+			}
+
+			ERR_CONTINUE( !state.scene_map.has(name) );
+
+			Node *node=state.scene_map[name];
+			ERR_CONTINUE( node->type!=Node::TYPE_JOINT );
+			if (node->type!=Node::TYPE_JOINT)
+				continue;
+			NodeSkeleton *sk=NULL;
+
+			while(node && !sk) {
+
+				if (node->type==Node::TYPE_SKELETON) {
+					sk=static_cast<NodeSkeleton*>(node);
+				}
+				node=node->parent;
+			}
+			ERR_CONTINUE( !sk );
+
+			if (!sk)
+				continue; //bleh
+
+			if (!skeleton) {
+				skeleton=sk;
+				continue;
+			}
+
+			if (skeleton!=sk) {
+				//whoa.. wtf, merge.
+				print_line("MERGED BONES!!");
+
+				//NodeSkeleton *merged = E->get();
+				_remove_node(p_vscene,sk);
+				for(int i=0;i<sk->children.size();i++) {
+
+					_joint_set_owner(sk->children[i],skeleton);
+					skeleton->children.push_back( sk->children[i] );
+					sk->children[i]->parent=skeleton;
+
+
+				}
+
+				sk->children.clear(); //take children from it
+				memdelete( sk );
+			}
+		}
+	}
+
+
 
 }
 
@@ -2426,6 +2530,9 @@ bool Collada::_move_geometry_to_skeletons(VisualScene *p_vscene,Node *p_node,Lis
 			ERR_FAIL_COND_V( !state.scene_map.has( nodeid ), false); //weird, it should have it...
 			NodeJoint *nj = SAFE_CAST<NodeJoint*>(state.scene_map[nodeid]);
 			ERR_FAIL_COND_V(!nj,false);
+			if (!nj->owner) {
+				print_line("Has no owner: "+nj->name);
+			}
 			ERR_FAIL_COND_V( !nj->owner,false ); //weird, node should have a skeleton owner
 
 			NodeSkeleton *sk = nj->owner;
@@ -2528,9 +2635,13 @@ void Collada::_optimize() {
 			_create_skeletons(&vs.root_nodes[i]);
 
 		}
+#if 1
 		for(int i=0;i<vs.root_nodes.size();i++) {
 			_merge_skeletons(&vs,vs.root_nodes[i]);
 		}
+
+		_merge_skeletons2(&vs);
+
 
 		for(int i=0;i<vs.root_nodes.size();i++) {
 			_optimize_skeletons(&vs,vs.root_nodes[i]);
@@ -2552,6 +2663,7 @@ void Collada::_optimize() {
 			}
 
 		}
+#endif
 		for(int i=0;i<vs.root_nodes.size();i++) {
 			_find_morph_nodes(&vs,vs.root_nodes[i]);
 		}

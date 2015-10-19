@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -129,7 +129,7 @@ void Console::_window_input_event(InputEvent p_event) {
 
 		if (p_event.key.scancode==KEY_ESCAPE && !window_has_modal_stack() && is_visible()) {
 			hide();
-			get_scene()->call_group(0,"windows","_cancel_input_ID",p_event.ID);
+			get_tree()->call_group(0,"windows","_cancel_input_ID",p_event.ID);
 		}
 
 
@@ -153,7 +153,7 @@ void Console::_notification(int p_what) {
 
 	switch(p_what) {
 
-		case NOTIFICATION_ENTER_SCENE: {
+		case NOTIFICATION_ENTER_TREE: {
 
 			_resized();
 			show();

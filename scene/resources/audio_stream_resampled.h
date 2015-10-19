@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,6 +31,7 @@
 
 #include "scene/resources/audio_stream.h"
 
+#if 0
 
 class AudioStreamResampled : public AudioStream {
 	OBJ_TYPE(AudioStreamResampled,AudioStream);
@@ -57,7 +58,7 @@ class AudioStreamResampled : public AudioStream {
 
 
 	template<int C>
-	void _resample(int32_t *p_dest,int p_todo,int32_t p_increment);
+	uint32_t _resample(int32_t *p_dest,int p_todo,int32_t p_increment);
 
 
 protected:
@@ -97,7 +98,7 @@ protected:
 	_FORCE_INLINE_ int16_t *get_write_buffer() { return read_buf; }
 	_FORCE_INLINE_ void write(uint32_t p_frames) {
 
-		ERR_FAIL_COND(p_frames > rb_len);
+		ERR_FAIL_COND(p_frames >= rb_len);
 
 		switch(channels) {
 			case 1: {
@@ -160,5 +161,5 @@ public:
 	AudioStreamResampled();
 	~AudioStreamResampled();
 };
-
+#endif
 #endif // AUDIO_STREAM_RESAMPLED_H

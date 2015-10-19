@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -60,8 +60,34 @@ private:
 		Set<String> files;
 	};
 
+	struct PathMD5 {
+		uint64_t a;
+		uint64_t b;
+		bool operator < (const PathMD5& p_md5) const {
 
-	Map<String,PackedFile> files;
+			if (p_md5.a == a) {
+				return b < p_md5.b;
+			} else {
+				return a < p_md5.a;
+			}
+		}
+
+		bool operator == (const PathMD5& p_md5) const {
+			return a == p_md5.a && b == p_md5.b;
+		};
+
+		PathMD5() {
+			a = b = 0;
+		};
+
+		PathMD5(const Vector<uint8_t> p_buf) {
+			a = *((uint64_t*)&p_buf[0]);
+			b = *((uint64_t*)&p_buf[8]);
+		};
+	};
+
+	Map<PathMD5,PackedFile> files;
+
 	Vector<PackSource*> sources;
 
 	PackedDir *root;
@@ -69,6 +95,8 @@ private:
 
 	static PackedData *singleton;
 	bool disabled;
+
+	void _free_packed_dirs(PackedDir *p_dir);
 
 public:
 
@@ -85,6 +113,7 @@ public:
 	_FORCE_INLINE_ bool has_path(const String& p_path);
 
 	PackedData();
+	~PackedData();
 };
 
 class PackSource {
@@ -93,6 +122,7 @@ public:
 
 	virtual bool try_open_pack(const String& p_path)=0;
 	virtual FileAccess* get_file(const String& p_path, PackedData::PackedFile* p_file)=0;
+	virtual ~PackSource() {}
 };
 
 class PackedSourcePCK : public PackSource {
@@ -151,7 +181,9 @@ public:
 
 FileAccess *PackedData::try_open_path(const String& p_path) {
 
-	Map<String,PackedFile>::Element *E=files.find(p_path);
+	//print_line("try open path " + p_path);
+	PathMD5 pmd5(p_path.md5_buffer());
+	Map<PathMD5,PackedFile>::Element *E=files.find(pmd5);
 	if (!E)
 		return NULL; //not found
 	if (E->get().offset==0)
@@ -162,7 +194,7 @@ FileAccess *PackedData::try_open_path(const String& p_path) {
 
 bool PackedData::has_path(const String& p_path) {
 
-	return files.has(p_path);
+	return files.has(PathMD5(p_path.md5_buffer()));
 }
 
 
@@ -180,6 +212,7 @@ public:
 	virtual bool list_dir_begin();
 	virtual String get_next();
 	virtual bool current_is_dir() const;
+	virtual bool current_is_hidden() const;
 	virtual void list_dir_end();
 
 	virtual int get_drive_count();
@@ -190,6 +223,7 @@ public:
 
 
 	virtual bool file_exists(String p_file);
+	virtual bool dir_exists(String p_dir);
 
 	virtual Error make_dir(String p_dir);
 

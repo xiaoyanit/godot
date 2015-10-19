@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -151,6 +151,7 @@ RID RasterizerDummy::shader_create(VS::ShaderMode p_mode) {
 	shader->mode=p_mode;
 	shader->fragment_line=0;
 	shader->vertex_line=0;
+	shader->light_line=0;
 	RID rid = shader_owner.make_rid(shader);
 
 	return rid;
@@ -174,16 +175,17 @@ VS::ShaderMode RasterizerDummy::shader_get_mode(RID p_shader) const {
 	return shader->mode;
 }
 
+void RasterizerDummy::shader_set_code(RID p_shader, const String& p_vertex, const String& p_fragment,const String& p_light,int p_vertex_ofs,int p_fragment_ofs,int p_light_ofs) {
 
-
-void RasterizerDummy::shader_set_code(RID p_shader, const String& p_vertex, const String& p_fragment,int p_vertex_ofs,int p_fragment_ofs) {
 
 	Shader *shader=shader_owner.get(p_shader);
 	ERR_FAIL_COND(!shader);
 	shader->fragment_code=p_fragment;
 	shader->vertex_code=p_vertex;
+	shader->light_code=p_light;
 	shader->fragment_line=p_fragment_ofs;
 	shader->vertex_line=p_vertex_ofs;
+	shader->light_line=p_vertex_ofs;
 
 }
 
@@ -204,11 +206,34 @@ String RasterizerDummy::shader_get_fragment_code(RID p_shader) const {
 
 }
 
+String RasterizerDummy::shader_get_light_code(RID p_shader) const {
+
+	Shader *shader=shader_owner.get(p_shader);
+	ERR_FAIL_COND_V(!shader,String());
+	return shader->light_code;
+
+}
+
 void RasterizerDummy::shader_get_param_list(RID p_shader, List<PropertyInfo> *p_param_list) const {
 
 	Shader *shader=shader_owner.get(p_shader);
 	ERR_FAIL_COND(!shader);
 
+}
+
+
+void RasterizerDummy::shader_set_default_texture_param(RID p_shader, const StringName& p_name, RID p_texture) {
+
+}
+
+RID RasterizerDummy::shader_get_default_texture_param(RID p_shader, const StringName& p_name) const {
+
+	return RID();
+}
+
+Variant RasterizerDummy::shader_get_default_param(RID p_shader, const StringName& p_name) {
+
+	return Variant();
 }
 
 /* COMMON MATERIAL API */
@@ -274,38 +299,20 @@ bool RasterizerDummy::material_get_flag(RID p_material,VS::MaterialFlag p_flag) 
 
 }
 
-void RasterizerDummy::material_set_hint(RID p_material, VS::MaterialHint p_hint,bool p_enabled) {
+void RasterizerDummy::material_set_depth_draw_mode(RID p_material, VS::MaterialDepthDrawMode p_mode) {
 
 	Material *material = material_owner.get(p_material);
 	ERR_FAIL_COND(!material);
-	ERR_FAIL_INDEX(p_hint,VS::MATERIAL_HINT_MAX);
-	material->hints[p_hint]=p_enabled;
-
+	material->depth_draw_mode=p_mode;
 }
 
-bool RasterizerDummy::material_get_hint(RID p_material,VS::MaterialHint p_hint) const {
+VS::MaterialDepthDrawMode RasterizerDummy::material_get_depth_draw_mode(RID p_material) const{
 
 	Material *material = material_owner.get(p_material);
-	ERR_FAIL_COND_V(!material,false);
-	ERR_FAIL_INDEX_V(p_hint,VS::MATERIAL_HINT_MAX,false);
-	return material->hints[p_hint];
+	ERR_FAIL_COND_V(!material,VS::MATERIAL_DEPTH_DRAW_ALWAYS);
+	return material->depth_draw_mode;
 
 }
-
-void RasterizerDummy::material_set_shade_model(RID p_material, VS::MaterialShadeModel p_model) {
-
-	Material *material = material_owner.get(p_material);
-	ERR_FAIL_COND(!material);
-	material->shade_model=p_model;
-
-};
-
-VS::MaterialShadeModel RasterizerDummy::material_get_shade_model(RID p_material) const {
-
-	Material *material = material_owner.get(p_material);
-	ERR_FAIL_COND_V(!material,VS::MATERIAL_SHADE_MODEL_LAMBERT);
-	return material->shade_model;
-};
 
 
 void RasterizerDummy::material_set_blend_mode(RID p_material,VS::MaterialBlendMode p_mode) {
@@ -569,7 +576,7 @@ int RasterizerDummy::mesh_get_surface_count(RID p_mesh) const {
 	return mesh->surfaces.size();
 }
 
-AABB RasterizerDummy::mesh_get_aabb(RID p_mesh) const {
+AABB RasterizerDummy::mesh_get_aabb(RID p_mesh,RID p_skeleton) const {
 
 	Mesh *mesh = mesh_owner.get( p_mesh );
 	ERR_FAIL_COND_V(!mesh,AABB());
@@ -585,6 +592,23 @@ AABB RasterizerDummy::mesh_get_aabb(RID p_mesh) const {
 	}
 
 	return aabb;
+}
+
+void RasterizerDummy::mesh_set_custom_aabb(RID p_mesh,const AABB& p_aabb) {
+
+	Mesh *mesh = mesh_owner.get( p_mesh );
+	ERR_FAIL_COND(!mesh);
+
+	mesh->custom_aabb=p_aabb;
+}
+
+AABB RasterizerDummy::mesh_get_custom_aabb(RID p_mesh) const {
+
+	const Mesh *mesh = mesh_owner.get( p_mesh );
+	ERR_FAIL_COND_V(!mesh,AABB());
+
+	return mesh->custom_aabb;
+
 }
 
 /* MULTIMESH API */
@@ -692,6 +716,74 @@ int RasterizerDummy::multimesh_get_visible_instances(RID p_multimesh) const {
 
 }
 
+/* IMMEDIATE API */
+
+
+RID RasterizerDummy::immediate_create() {
+
+	Immediate *im = memnew( Immediate );
+	return immediate_owner.make_rid(im);
+
+}
+
+void RasterizerDummy::immediate_begin(RID p_immediate,VS::PrimitiveType p_rimitive,RID p_texture){
+
+
+}
+void RasterizerDummy::immediate_vertex(RID p_immediate,const Vector3& p_vertex){
+
+
+}
+void RasterizerDummy::immediate_normal(RID p_immediate,const Vector3& p_normal){
+
+
+}
+void RasterizerDummy::immediate_tangent(RID p_immediate,const Plane& p_tangent){
+
+
+}
+void RasterizerDummy::immediate_color(RID p_immediate,const Color& p_color){
+
+
+}
+void RasterizerDummy::immediate_uv(RID p_immediate,const Vector2& tex_uv){
+
+
+}
+void RasterizerDummy::immediate_uv2(RID p_immediate,const Vector2& tex_uv){
+
+
+}
+
+void RasterizerDummy::immediate_end(RID p_immediate){
+
+
+}
+void RasterizerDummy::immediate_clear(RID p_immediate) {
+
+
+}
+
+AABB RasterizerDummy::immediate_get_aabb(RID p_immediate) const {
+
+	return AABB(Vector3(-1,-1,-1),Vector3(2,2,2));
+}
+
+void RasterizerDummy::immediate_set_material(RID p_immediate,RID p_material) {
+
+	Immediate *im = immediate_owner.get(p_immediate);
+	ERR_FAIL_COND(!im);
+	im->material=p_material;
+
+}
+
+RID RasterizerDummy::immediate_get_material(RID p_immediate) const {
+
+	const Immediate *im = immediate_owner.get(p_immediate);
+	ERR_FAIL_COND_V(!im,RID());
+	return im->material;
+
+}
 
 /* PARTICLES API */
 
@@ -1286,6 +1378,12 @@ int RasterizerDummy::light_instance_get_shadow_passes(RID p_light_instance) cons
 	return 0;
 }
 
+bool RasterizerDummy::light_instance_get_pssm_shadow_overlap(RID p_light_instance) const {
+
+	return false;
+}
+
+
 void RasterizerDummy::light_instance_set_custom_transform(RID p_light_instance, int p_index, const CameraMatrix& p_camera, const Transform& p_transform, float p_split_near,float p_split_far) {
 
 	LightInstance *lighti = light_instance_owner.get( p_light_instance );
@@ -1399,7 +1497,7 @@ void RasterizerDummy::begin_shadow_map( RID p_light_instance, int p_shadow_pass 
 
 }
 
-void RasterizerDummy::set_camera(const Transform& p_world,const CameraMatrix& p_projection) {
+void RasterizerDummy::set_camera(const Transform& p_world, const CameraMatrix& p_projection, bool p_ortho_hint) {
 
 
 }
@@ -1447,9 +1545,36 @@ void RasterizerDummy::end_frame() {
 
 }
 
+RID RasterizerDummy::canvas_light_occluder_create() {
+	return RID();
+}
+
+void RasterizerDummy::canvas_light_occluder_set_polylines(RID p_occluder, const DVector<Vector2>& p_lines) {
+
+
+}
+
+RID RasterizerDummy::canvas_light_shadow_buffer_create(int p_width) {
+
+	return RID();
+}
+
+void RasterizerDummy::canvas_light_shadow_buffer_update(RID p_buffer, const Matrix32& p_light_xform, int p_light_mask,float p_near, float p_far, CanvasLightOccluderInstance* p_occluders, CameraMatrix *p_xform_cache) {
+
+
+}
+
+void RasterizerDummy::canvas_debug_viewport_shadows(CanvasLight* p_lights_with_shadow) {
+
+
+}
+
 /* CANVAS API */
 
 
+void RasterizerDummy::begin_canvas_bg() {
+
+}
 void RasterizerDummy::canvas_begin() {
 
 
@@ -1520,6 +1645,11 @@ void RasterizerDummy::canvas_draw_polygon(int p_vertex_count, const int* p_indic
 }
 
 void RasterizerDummy::canvas_set_transform(const Matrix32& p_transform) {
+
+
+}
+
+void RasterizerDummy::canvas_render_items(CanvasItem *p_item_list,int p_z,const Color& p_modulate,CanvasLight *p_light) {
 
 
 }
@@ -1596,6 +1726,18 @@ Variant RasterizerDummy::environment_fx_get_param(RID p_env,VS::EnvironmentFxPar
 
 }
 
+
+RID RasterizerDummy::sampled_light_dp_create(int p_width,int p_height) {
+
+	return sampled_light_owner.make_rid(memnew(SampledLight));
+}
+
+void RasterizerDummy::sampled_light_dp_update(RID p_sampled_light, const Color *p_data, float p_multiplier) {
+
+
+}
+
+
 /*MISC*/
 
 bool RasterizerDummy::is_texture(const RID& p_rid) const {
@@ -1610,6 +1752,12 @@ bool RasterizerDummy::is_mesh(const RID& p_rid) const {
 
 	return mesh_owner.owns(p_rid);
 }
+
+bool RasterizerDummy::is_immediate(const RID& p_rid) const {
+
+	return immediate_owner.owns(p_rid);
+}
+
 bool RasterizerDummy::is_multimesh(const RID& p_rid) const {
 
 	return multimesh_owner.owns(p_rid);
@@ -1638,6 +1786,11 @@ bool RasterizerDummy::is_skeleton(const RID& p_rid) const {
 bool RasterizerDummy::is_environment(const RID& p_rid) const {
 
 	return environment_owner.owns(p_rid);
+}
+
+bool RasterizerDummy::is_canvas_light_occluder(const RID& p_rid) const {
+
+	return false;
 }
 
 bool RasterizerDummy::is_shader(const RID& p_rid) const {
@@ -1686,6 +1839,12 @@ void RasterizerDummy::free(const RID& p_rid) {
 	       multimesh_owner.free(p_rid);
 	       memdelete(multimesh);
 
+	} else if (immediate_owner.owns(p_rid)) {
+
+		Immediate *immediate = immediate_owner.get(p_rid);
+		immediate_owner.free(p_rid);
+		memdelete(immediate);
+
 	} else if (particles_owner.owns(p_rid)) {
 
 		Particles *particles = particles_owner.get(p_rid);
@@ -1721,6 +1880,14 @@ void RasterizerDummy::free(const RID& p_rid) {
 		Environment *env = environment_owner.get( p_rid );
 		environment_owner.free(p_rid);
 		memdelete( env );
+	} else if (sampled_light_owner.owns(p_rid)) {
+
+		SampledLight *sampled_light = sampled_light_owner.get( p_rid );
+		ERR_FAIL_COND(!sampled_light);
+
+		sampled_light_owner.free(p_rid);
+		memdelete( sampled_light );
+
 	};
 }
 
@@ -1781,6 +1948,9 @@ bool RasterizerDummy::has_feature(VS::Features p_feature) const {
 
 }
 
+void RasterizerDummy::restore_framebuffer() {
+
+}
 
 RasterizerDummy::RasterizerDummy() {
 

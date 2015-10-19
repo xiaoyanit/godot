@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -38,7 +38,66 @@
 
 
 class ShaderLanguage  {
+
+
+
 public:
+
+	enum TokenType {
+
+		TK_EMPTY,
+		TK_INDENTIFIER,
+		TK_TRUE,
+		TK_FALSE,
+		TK_REAL_CONSTANT,
+		TK_TYPE_VOID,
+		TK_TYPE_BOOL,
+		TK_TYPE_FLOAT,
+		TK_TYPE_VEC2,
+		TK_TYPE_VEC3,
+		TK_TYPE_VEC4,
+		TK_TYPE_MAT2,
+		TK_TYPE_MAT3,
+		TK_TYPE_MAT4,
+		TK_TYPE_TEXTURE,
+		TK_TYPE_CUBEMAP,
+		TK_TYPE_COLOR,
+		TK_OP_EQUAL,
+		TK_OP_NOT_EQUAL,
+		TK_OP_LESS,
+		TK_OP_LESS_EQUAL,
+		TK_OP_GREATER,
+		TK_OP_GREATER_EQUAL,
+		TK_OP_AND,
+		TK_OP_OR,
+		TK_OP_NOT,
+		TK_OP_ADD,
+		TK_OP_SUB,
+		TK_OP_MUL,
+		TK_OP_DIV,
+		TK_OP_NEG,
+		TK_OP_ASSIGN,
+		TK_OP_ASSIGN_ADD,
+		TK_OP_ASSIGN_SUB,
+		TK_OP_ASSIGN_MUL,
+		TK_OP_ASSIGN_DIV,
+		TK_CF_IF,
+		TK_CF_ELSE,
+		TK_CF_RETURN,
+		TK_BRACKET_OPEN,
+		TK_BRACKET_CLOSE,
+		TK_CURLY_BRACKET_OPEN,
+		TK_CURLY_BRACKET_CLOSE,
+		TK_PARENTHESIS_OPEN,
+		TK_PARENTHESIS_CLOSE,
+		TK_COMMA,
+		TK_SEMICOLON,
+		TK_PERIOD,
+		TK_UNIFORM,
+		TK_ERROR,
+		TK_MAX
+	};
+
 
 
 	/* COMPILER */
@@ -46,6 +105,10 @@ public:
 	enum ShaderType {
 		SHADER_MATERIAL_VERTEX,
 		SHADER_MATERIAL_FRAGMENT,
+		SHADER_MATERIAL_LIGHT,
+		SHADER_CANVAS_ITEM_VERTEX,
+		SHADER_CANVAS_ITEM_FRAGMENT,
+		SHADER_CANVAS_ITEM_LIGHT,
 		SHADER_POST_PROCESS,
 	};
 
@@ -56,6 +119,7 @@ public:
 		TYPE_VEC2,
 		TYPE_VEC3,
 		TYPE_VEC4,
+		TYPE_MAT2,
 		TYPE_MAT3,
 		TYPE_MAT4,
 		TYPE_TEXTURE,
@@ -215,7 +279,17 @@ public:
 		ProgramNode() { type=TYPE_PROGRAM; }
 	};
 
-	typedef void (*CompileFunc)(void*,ProgramNode*);
+
+	struct Expression {
+
+		bool is_op;
+		union {
+			TokenType op;
+			Node *node;
+		};
+	};
+
+	typedef Error (*CompileFunc)(void*,ProgramNode*);
 
 	struct VarInfo {
 
@@ -226,60 +300,6 @@ public:
 private:
 
 
-
-	enum TokenType {
-
-		TK_EMPTY,
-		TK_INDENTIFIER,
-		TK_TRUE,
-		TK_FALSE,
-		TK_REAL_CONSTANT,
-		TK_TYPE_VOID,
-		TK_TYPE_BOOL,
-		TK_TYPE_FLOAT,
-		TK_TYPE_VEC2,
-		TK_TYPE_VEC3,
-		TK_TYPE_VEC4,
-		TK_TYPE_MAT3,
-		TK_TYPE_MAT4,
-		TK_TYPE_TEXTURE,
-		TK_TYPE_CUBEMAP,
-		TK_TYPE_COLOR,
-		TK_OP_EQUAL,
-		TK_OP_NOT_EQUAL,
-		TK_OP_LESS,
-		TK_OP_LESS_EQUAL,
-		TK_OP_GREATER,
-		TK_OP_GREATER_EQUAL,
-		TK_OP_AND,
-		TK_OP_OR,
-		TK_OP_NOT,
-		TK_OP_ADD,
-		TK_OP_SUB,
-		TK_OP_MUL,
-		TK_OP_DIV,
-		TK_OP_NEG,
-		TK_OP_ASSIGN,
-		TK_OP_ASSIGN_ADD,
-		TK_OP_ASSIGN_SUB,
-		TK_OP_ASSIGN_MUL,
-		TK_OP_ASSIGN_DIV,
-		TK_CF_IF,
-		TK_CF_ELSE,
-		TK_CF_RETURN,
-		TK_BRACKET_OPEN,
-		TK_BRACKET_CLOSE,
-		TK_CURLY_BRACKET_OPEN,
-		TK_CURLY_BRACKET_CLOSE,
-		TK_PARENTHESIS_OPEN,
-		TK_PARENTHESIS_CLOSE,
-		TK_COMMA,
-		TK_SEMICOLON,
-		TK_PERIOD,
-		TK_UNIFORM,
-		TK_ERROR,		
-		TK_MAX
-	};
 
 	static const char * token_names[TK_MAX];
 
@@ -360,6 +380,13 @@ private:
 
 	static const BuiltinsDef vertex_builtins_defs[];
 	static const BuiltinsDef fragment_builtins_defs[];
+	static const BuiltinsDef light_builtins_defs[];
+
+	static const BuiltinsDef ci_vertex_builtins_defs[];
+	static const BuiltinsDef ci_fragment_builtins_defs[];
+	static const BuiltinsDef ci_light_builtins_defs[];
+
+
 	static const BuiltinsDef postprocess_fragment_builtins_defs[];
 
 	static DataType get_token_datatype(TokenType p_type);

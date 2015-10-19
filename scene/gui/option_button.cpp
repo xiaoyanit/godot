@@ -5,7 +5,7 @@
 /*                           GODOT ENGINE                                */
 /*                    http://www.godotengine.org                         */
 /*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2007-2015 Juan Linietsky, Ariel Manzur.                 */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -192,7 +192,7 @@ void OptionButton::_select(int p_idx,bool p_emit) {
 	set_text( popup->get_item_text( current ) );
 	set_icon( popup->get_item_icon( current ) );
 
-	if (is_inside_scene() && p_emit)
+	if (is_inside_tree() && p_emit)
 		emit_signal("item_selected",current);
 }
 
